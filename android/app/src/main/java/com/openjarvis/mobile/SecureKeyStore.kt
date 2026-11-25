@@ -11,7 +11,7 @@ import javax.crypto.spec.GCMParameterSpec
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 
-/** Encrypts the server API key with a non-exportable Android Keystore AES key. */
+/** Encrypts provider credentials with a non-exportable Android Keystore AES key. */
 class SecureKeyStore(context: Context) {
     private val preferences = context.getSharedPreferences("openjarvis_connection", Context.MODE_PRIVATE)
 
@@ -78,7 +78,11 @@ class SecureKeyStore(context: Context) {
     }
 
     fun clear() {
-        preferences.edit().remove(KEY_API).remove(KEY_WAKE_WORD).apply()
+        preferences.edit().remove(KEY_API).apply()
+    }
+
+    fun clearWakeWordAccessKey() {
+        preferences.edit().remove(KEY_WAKE_WORD).apply()
     }
 
     private fun getOrCreateKey(): SecretKey {
