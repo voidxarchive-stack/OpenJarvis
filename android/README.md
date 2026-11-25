@@ -16,8 +16,8 @@ The Android client is a native Kotlin + Jetpack Compose application.
   Recognized text is inserted into the compose box for review before sending.
 - Offers Android TextToSpeech playback, including an opt-in automatic
   speak-replies toggle.
-- Does not declare the `RECORD_AUDIO` permission; voice capture is delegated
-  to the system recognizer UI, which handles its own microphone permission.
+- Adds opt-in, foreground-only wake-word detection using Picovoice Porcupine.
+  The user grants microphone permission and explicitly starts/stops listening.
 
 ## Build and test
 
@@ -46,14 +46,20 @@ using Android Keystore. Do not use this preview for highly sensitive
 conversations until encrypted history storage and a user-facing
 connection-management flow are implemented.
 
-Speech dictation opens the platform recognizer UI and requires the user to
-start the capture. Recognized text is not sent automatically; the user can
-review and edit it before pressing Send. Spoken output uses the device's
-installed text-to-speech engine and can be disabled with the auto-speak
-toggle. TTS is stopped and released when the screen is disposed.
+Speech dictation opens the platform recognizer UI. Recognized text is not
+sent automatically; the user can review and edit it before pressing Send.
+Spoken output uses the device's installed text-to-speech engine and can be
+disabled with the auto-speak toggle.
 
-This milestone does not include an always-listening wake word, background
-microphone service, document/video capture, app launching, typing into other
-apps, Gmail/Calendar OAuth, or on-device model inference. These remain
-separate milestones with dedicated permission, privacy, lifecycle, and
-device testing.
+Wake-word detection uses Picovoice Porcupine's on-device engine. The user
+must enter a Picovoice AccessKey, grant Android microphone permission, and
+tap **Start listening**. The current build uses the built-in **"Jarvis"**
+keyword (not the custom phrase "Hey Jarvis"). Listening stops when the user
+taps Stop or the app leaves the foreground; no background microphone service
+or boot-time auto-start is enabled. A custom "Hey Jarvis" trigger requires a
+custom Android `.ppn` keyword model from the
+[Picovoice Console](https://console.picovoice.ai/). Keep the AccessKey private;
+the app stores it encrypted with Android Keystore.
+
+Document/video capture, app launching, typing into other apps, Gmail/Calendar
+OAuth, and on-device language-model inference remain separate milestones.
