@@ -9,12 +9,15 @@ The Android client is a native Kotlin + Jetpack Compose application.
 - Discovers available models through `GET /v1/models`.
 - Streams assistant replies from `POST /v1/chat/completions` using
   OpenAI-compatible Server-Sent Events.
-- Sends the full conversation context with each chat request.
-- Saves the latest 40 user/assistant messages in app-private local storage.
+- Sends prior user/assistant messages as conversation context.
+- Saves the latest 40 messages in app-private local storage.
 - Encrypts the server API key with an AES-GCM key held by Android Keystore.
-- Provides a clear-history action; conversation history stays on this device.
-- Does not request microphone, contacts, calendar, accessibility, or
-  notification permissions.
+- Offers voice dictation through Android's system speech-recognition activity.
+  Recognized text is inserted into the compose box for review before sending.
+- Offers Android TextToSpeech playback, including an opt-in automatic
+  speak-replies toggle.
+- Does not declare the `RECORD_AUDIO` permission; voice capture is delegated
+  to the system recognizer UI, which handles its own microphone permission.
 
 ## Build and test
 
@@ -36,13 +39,21 @@ connections and does not place API keys in URLs.
 
 ## Privacy and limitations
 
-Chat history is stored locally in app-private SharedPreferences, is bounded to
-40 messages, and is not encrypted separately in this iteration. Clear it from
-the app when needed. The API key is encrypted using Android Keystore. Do not
-use this preview for highly sensitive conversations until encrypted history
-storage and a user-facing connection-management flow are implemented.
+Chat history is stored in app-private SharedPreferences, is bounded to 40
+messages, and is not uploaded separately. It is not separately encrypted in
+this iteration. Clear it from the app when needed. The API key is encrypted
+using Android Keystore. Do not use this preview for highly sensitive
+conversations until encrypted history storage and a user-facing
+connection-management flow are implemented.
 
-This milestone does not yet include wake-word detection, speech recognition,
-text-to-speech, document/video capture, app launching, typing into other apps,
-Gmail/Calendar OAuth, or on-device model inference. Those remain separate
-milestones with dedicated permission, privacy, and device testing.
+Speech dictation opens the platform recognizer UI and requires the user to
+start the capture. Recognized text is not sent automatically; the user can
+review and edit it before pressing Send. Spoken output uses the device's
+installed text-to-speech engine and can be disabled with the auto-speak
+toggle. TTS is stopped and released when the screen is disposed.
+
+This milestone does not include an always-listening wake word, background
+microphone service, document/video capture, app launching, typing into other
+apps, Gmail/Calendar OAuth, or on-device model inference. These remain
+separate milestones with dedicated permission, privacy, lifecycle, and
+device testing.
