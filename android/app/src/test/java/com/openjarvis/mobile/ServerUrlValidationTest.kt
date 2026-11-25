@@ -10,7 +10,7 @@ class ServerUrlValidationTest {
     @Test
     fun rejectsPlainHttp() {
         val error = assertThrows(IllegalArgumentException::class.java) {
-            api.validateServerUrlForTest("http://192.168.1.10:8000")
+            api.validateServerUrl("http://192.168.1.10:8000")
         }
         assertEquals(
             "Use an HTTPS server URL. Unencrypted HTTP connections are disabled.",
@@ -21,7 +21,7 @@ class ServerUrlValidationTest {
     @Test
     fun rejectsCredentialsInUrl() {
         val error = assertThrows(IllegalArgumentException::class.java) {
-            api.validateServerUrlForTest("https://user:secret@example.com")
+            api.validateServerUrl("https://user:secret@example.com")
         }
         assertEquals(
             "Server URL must not contain credentials, query parameters, or fragments",
@@ -33,7 +33,7 @@ class ServerUrlValidationTest {
     fun normalizesHttpsUrl() {
         assertEquals(
             "https://jarvis.example",
-            api.validateServerUrlForTest("https://jarvis.example/"),
+            api.validateServerUrl("https://jarvis.example/"),
         )
     }
 }
