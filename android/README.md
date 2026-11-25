@@ -16,8 +16,9 @@ The Android client is a native Kotlin + Jetpack Compose application.
   Recognized text is inserted into the compose box for review before sending.
 - Offers Android TextToSpeech playback, including an opt-in automatic
   speak-replies toggle.
-- Does not declare the `RECORD_AUDIO` permission; voice capture is delegated
-  to the system recognizer UI, which handles its own microphone permission.
+- Adds opt-in, foreground-only offline wake-word detection for **"Hey Jarvis"**
+  using the open-source openWakeWord Android runtime. The user explicitly
+  grants microphone permission and starts/stops listening.
 
 ## Build and test
 
@@ -52,8 +53,19 @@ review and edit it before pressing Send. Spoken output uses the device's
 installed text-to-speech engine and can be disabled with the auto-speak
 toggle. TTS is stopped and released when the screen is disposed.
 
-This milestone does not include an always-listening wake word, background
-microphone service, document/video capture, app launching, typing into other
-apps, Gmail/Calendar OAuth, or on-device model inference. These remain
+Wake-word detection uses the open-source openWakeWord Android runtime and its
+built-in **"Hey Jarvis"** model. Detection runs on-device without a Picovoice
+account, AccessKey, subscription, or cloud audio upload. The user must grant
+Android microphone permission and tap **Start listening**. Listening stops
+when the user taps Stop or the app leaves the foreground; no background
+microphone service or boot-time auto-start is enabled.
+
+The runtime code is Apache-2.0. The bundled pretrained wake-word models are
+CC BY-NC-SA 4.0, so this model is intended for non-commercial use. A future
+commercial distribution must replace it with a model whose license permits
+that use.
+
+Background microphone service, document/video capture, app launching, typing
+into other apps, Gmail/Calendar OAuth, and on-device model inference remain
 separate milestones with dedicated permission, privacy, lifecycle, and
 device testing.
