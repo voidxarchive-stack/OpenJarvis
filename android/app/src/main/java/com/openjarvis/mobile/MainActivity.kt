@@ -1,8 +1,12 @@
 package com.openjarvis.mobile
 
+import android.Manifest
 import android.content.ActivityNotFoundException
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.speech.RecognizerIntent
 import android.speech.tts.TextToSpeech
 import androidx.activity.ComponentActivity
@@ -39,6 +43,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.LifecycleOwner
+import ai.picovoice.porcupine.Porcupine
+import ai.picovoice.porcupine.PorcupineManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -77,6 +86,9 @@ private fun JarvisScreen(keyStore: SecureKeyStore, historyStore: ChatHistoryStor
     var speakReplies by remember { mutableStateOf(true) }
     var tts by remember { mutableStateOf<TextToSpeech?>(null) }
     var ttsReady by remember { mutableStateOf(false) }
+    var wakeWordKey by remember { mutableStateOf("") }
+    var porcupineManager by remember { mutableStateOf<PorcupineManager?>(null) }
+    var wakeListening by remember { mutableStateOf(false) }
 
     val speechInput = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult(),
@@ -97,6 +109,79 @@ private fun JarvisScreen(keyStore: SecureKeyStore, historyStore: ChatHistoryStor
         }
     }
 
+    fun stopWakeWord() {
+        val manager = porcupineManager
+        porcupineManager = null
+        wakeListening = false
+        try {
+            manager?.stop()
+        } catch (_: Exception) {
+            // The engine may already have stopped after a wake-word callback.
+        }
+        manager?.delete()
+    }
+
+    fun startWakeWord() {
+        if (wakeWordKey.isBlank()) {
+            status = "Enter and save your Picovoice AccessKey first."
+            return
+        }
+        if (wakeListening) return
+        try {
+            val manager = PorcupineManager.Builder()
+                .setAccessKey(wakeWordKey.trim())
+                .setKeyword(Porcupine.BuiltInKeyword.JARVIS)
+                .build(context) {
+                    Handler(Looper.getMainLooper()).post {
+                        status = "Wake word detected. Speak your message."
+                        stopWakeWord()
+                        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                            putExtra(
+                                RecognizerIntent.EXTRA_LANGUAGE_MODEL,
+                                RecognizerIntent.LANGUAGE_MODEL_FREE_FORM,
+                            )
+                            putExtra(RecognizerIntent.EXTRA_PROMPT, "What can I help you with?")
+                        }
+                        try {
+                            speechInput.launch(intent)
+                        } catch (_: ActivityNotFoundException) {
+                            status = "Wake word detected, but no speech recognizer is installed."
+                        }
+                    }
+                }
+            porcupineManager = manager
+            manager.start()
+            wakeListening = true
+            tts?.stop()
+            status = "Listening for 'Jarvis' while OpenJarvis remains in the foreground."
+        } catch (error: Exception) {
+            stopWakeWord()
+            status = error.message ?: "Wake-word engine could not start."
+        }
+    }
+
+    val microphonePermission = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        if (granted) startWakeWord()
+        else status = "Microphone permission was denied. Wake-word listening remains off."
+    }
+
+    DisposableEffect(context) {
+        val owner = context as? LifecycleOwner
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP && wakeListening) {
+                stopWakeWord()
+                status = "Wake-word listening paused because OpenJarvis left the foreground."
+            }
+        }
+        owner?.lifecycle?.addObserver(observer)
+        onDispose {
+            owner?.lifecycle?.removeObserver(observer)
+            stopWakeWord()
+        }
+    }
+
     DisposableEffect(context) {
         val engine = TextToSpeech(context.applicationContext) { result ->
             ttsReady = result == TextToSpeech.SUCCESS
@@ -113,6 +198,7 @@ private fun JarvisScreen(keyStore: SecureKeyStore, historyStore: ChatHistoryStor
 
     LaunchedEffect(Unit) {
         apiKey = keyStore.loadApiKey().orEmpty()
+        wakeWordKey = keyStore.loadWakeWordAccessKey().orEmpty()
     }
 
     fun runTask(task: suspend () -> Unit) {
@@ -256,6 +342,59 @@ private fun JarvisScreen(keyStore: SecureKeyStore, historyStore: ChatHistoryStor
             Text("Automatically speak replies")
             Spacer(Modifier.weight(1f))
             Switch(checked = speakReplies, onCheckedChange = { speakReplies = it })
+        }
+        Text("Wake word", style = MaterialTheme.typography.titleMedium)
+        OutlinedTextField(
+            value = wakeWordKey,
+            onValueChange = { wakeWordKey = it },
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text("Picovoice AccessKey") },
+            visualTransformation = PasswordVisualTransformation(),
+            singleLine = true,
+            enabled = !wakeListening,
+        )
+        Button(
+            onClick = {
+                try {
+                    keyStore.saveWakeWordAccessKey(wakeWordKey.trim())
+                    status = "Wake-word AccessKey saved securely on this device."
+                } catch (error: Exception) {
+                    status = error.message ?: "Could not save wake-word AccessKey."
+                }
+            },
+            enabled = !wakeListening && wakeWordKey.isNotBlank(),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text("Save wake-word key")
+        }
+        Text(
+            "Wake detection runs on-device for the built-in 'Jarvis' trigger and only while this screen is in the foreground. It stops when you leave the app.",
+            style = MaterialTheme.typography.bodySmall,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(
+                onClick = {
+                    if (context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+                        startWakeWord()
+                    } else {
+                        microphonePermission.launch(Manifest.permission.RECORD_AUDIO)
+                    }
+                },
+                enabled = !busy && !wakeListening,
+                modifier = Modifier.weight(1f),
+            ) {
+                Text("Start listening")
+            }
+            Button(
+                onClick = {
+                    stopWakeWord()
+                    status = "Wake-word listening stopped."
+                },
+                enabled = wakeListening,
+                modifier = Modifier.weight(1f),
+            ) {
+                Text("Stop")
+            }
         }
         Button(
             onClick = {
