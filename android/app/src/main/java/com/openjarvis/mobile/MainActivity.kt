@@ -47,7 +47,6 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DarkColorScheme
 import androidx.compose.material3.Divider
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
@@ -137,7 +136,7 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 private fun JarvisTheme(content: @Composable () -> Unit) {
-    val colors: DarkColorScheme = darkColorScheme(
+    val colors = darkColorScheme(
         primary = Cyan,
         onPrimary = Color(0xFF00212A),
         secondary = Blue,
@@ -350,7 +349,7 @@ private fun JarvisScreen(
         }
 
         val rememberMatch = Regex(
-            "^remember(?:\\\\s+that)?\\\\s+(.+)$",
+            "^remember(?:\\s+that)?\\s+(.+)$",
             setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL),
         ).find(question)
         var memorySaved = false
@@ -1319,7 +1318,7 @@ private class PersonalMemoryStore(context: Context) {
 
     private fun save(values: List<String>) {
         val array = JSONArray()
-        values.forEach(array::put)
+        values.forEach { array.put(it) }
         preferences.edit().putString(KEY_MEMORIES, array.toString()).apply()
     }
 
