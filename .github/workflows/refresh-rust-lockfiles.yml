@@ -30,11 +30,25 @@ jobs:
         run: |
           cargo update -p url --precise 2.5.9
           cargo update -p cookie --precise 0.18.3
-      - name: Verify lockfile selections
+      - name: Verify patched lockfile versions
+        shell: bash
         run: |
-          grep -A 2 '^name = "url"$' rust/Cargo.lock
-          grep -A 2 '^name = "url"$' frontend/src-tauri/Cargo.lock
-          grep -A 2 '^name = "cookie"$' frontend/src-tauri/Cargo.lock
+          assert_locked_version() {
+            local file="$1" package="$2" expected="$3"
+            awk -v package="$package" -v expected="$expected" '
+              $0 == "name = \"" package "\"" {
+                if (getline && $0 == "version = \"" expected "\"") found = 1
+              }
+              END { exit(found ? 0 : 1) }
+            ' "$file" || {
+              echo "::error::Expected $package $expected in $file"
+              exit 1
+            }
+            echo "Verified $package $expected in $file"
+          }
+          assert_locked_version rust/Cargo.lock url 2.5.9
+          assert_locked_version frontend/src-tauri/Cargo.lock url 2.5.9
+          assert_locked_version frontend/src-tauri/Cargo.lock cookie 0.18.3
       - name: Commit refreshed lockfiles
         run: |
           git config user.name "github-actions[bot]"
