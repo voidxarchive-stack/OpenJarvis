@@ -1,0 +1,69 @@
+name: Refresh Rust lockfiles
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "rust/Cargo.toml"
+      - "rust/Cargo.lock"
+      - "frontend/src-tauri/Cargo.toml"
+      - "frontend/src-tauri/Cargo.lock"
+      - ".github/workflows/refresh-rust-lockfiles.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Update backend URL dependency
+        working-directory: rust
+        run: cargo update -p url --precise 2.5.9
+      - name: Update desktop URL and cookie dependencies
+        working-directory: frontend/src-tauri
+        run: |
+          cargo update -p url --precise 2.5.9
+          cargo update -p cookie --precise 0.18.3
+      - name: Verify patched lockfile versions
+        shell: bash
+        run: |
+          assert_locked_version() {
+            local file="$1" package="$2" expected="$3"
+            awk -v package="$package" -v expected="$expected" '
+              $0 == "name = \"" package "\"" {
+                if (getline && $0 == "version = \"" expected "\"") found = 1
+              }
+              END { exit(found ? 0 : 1) }
+            ' "$file" || {
+              echo "::error::Expected $package $expected in $file"
+              exit 1
+            }
+            echo "Verified $package $expected in $file"
+          }
+          assert_locked_version rust/Cargo.lock url 2.5.9
+          assert_locked_version frontend/src-tauri/Cargo.lock url 2.5.9
+          assert_locked_version frontend/src-tauri/Cargo.lock cookie 0.18.3
+      - name: Commit refreshed lockfiles
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add rust/Cargo.lock frontend/src-tauri/Cargo.lock
+          if git diff --cached --quiet; then
+            echo "Lockfiles are already up to date."
+          else
+            git commit -m "fix: update vulnerable Rust dependencies"
+            git push origin "HEAD:refs/heads/${{ github.head_ref }}"
+          fi
+      - uses: actions/upload-artifact@v7
+        with:
+          name: refreshed-rust-lockfiles
+          path: |
+            rust/Cargo.lock
+            frontend/src-tauri/Cargo.lock
+          if-no-files-found: error

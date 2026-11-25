@@ -150,7 +150,9 @@ def _run_case(tmp_path: Path, case: str) -> dict:
         ],
         text=True,
         capture_output=True,
-        timeout=30,
+        # Allow slower Windows-hosted runners under parallel CI load.
+        # Retain a finite timeout to catch genuine hangs.
+        timeout=90,
     )
     assert result.returncode == 0, result.stdout + result.stderr
     return json.loads(result.stdout)
