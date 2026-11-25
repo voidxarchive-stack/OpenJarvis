@@ -45,6 +45,16 @@ class SecureKeyStore(context: Context) {
         }
     }
 
+    fun saveServerUrl(url: String) {
+        preferences.edit().putString(KEY_SERVER_URL, url.trim()).apply()
+    }
+
+    fun loadServerUrl(): String? = preferences.getString(KEY_SERVER_URL, null)
+
+    fun clearServerUrl() {
+        preferences.edit().remove(KEY_SERVER_URL).apply()
+    }
+
     fun clear() {
         preferences.edit().remove(KEY_API).apply()
     }
@@ -71,6 +81,7 @@ class SecureKeyStore(context: Context) {
         const val ANDROID_KEY_STORE = "AndroidKeyStore"
         const val KEY_ALIAS = "openjarvis_server_api_key_v1"
         const val KEY_API = "encrypted_api_key"
+        const val KEY_SERVER_URL = "server_url"
         const val TRANSFORMATION = "AES/GCM/NoPadding"
     }
 }
