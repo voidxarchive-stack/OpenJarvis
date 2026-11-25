@@ -18,6 +18,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
       - uses: dtolnay/rust-toolchain@stable
       - name: Update backend URL dependency
         working-directory: rust
@@ -33,8 +36,6 @@ jobs:
           grep -A 2 '^name = "url"$' frontend/src-tauri/Cargo.lock
           grep -A 2 '^name = "cookie"$' frontend/src-tauri/Cargo.lock
       - name: Commit refreshed lockfiles
-        env:
-          PR_BRANCH: ${{ github.head_ref }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -43,7 +44,7 @@ jobs:
             echo "Lockfiles are already up to date."
           else
             git commit -m "fix: update vulnerable Rust dependencies"
-            git push origin "HEAD:refs/heads/${PR_BRANCH}"
+            git push origin "HEAD:refs/heads/${{ github.head_ref }}"
           fi
       - uses: actions/upload-artifact@v7
         with:
