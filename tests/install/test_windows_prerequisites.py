@@ -150,8 +150,8 @@ def _run_case(tmp_path: Path, case: str) -> dict:
         ],
         text=True,
         capture_output=True,
-        # Windows-hosted runners can be heavily loaded by the parallel Python matrix.
-        # Keep a finite bound, but avoid treating transient process startup delays as failures.
+        # Allow slower Windows-hosted runners under parallel CI load.
+        # Retain a finite timeout to catch genuine hangs.
         timeout=90,
     )
     assert result.returncode == 0, result.stdout + result.stderr
