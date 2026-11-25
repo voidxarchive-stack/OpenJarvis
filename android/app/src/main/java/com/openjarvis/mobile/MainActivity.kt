@@ -14,14 +14,15 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -37,10 +38,11 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val keyStore = SecureKeyStore(applicationContext)
+        val historyStore = ChatHistoryStore(applicationContext)
         setContent {
             MaterialTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
-                    JarvisScreen(keyStore)
+                    JarvisScreen(keyStore, historyStore)
                 }
             }
         }
@@ -48,14 +50,17 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-private fun JarvisScreen(keyStore: SecureKeyStore) {
+private fun JarvisScreen(keyStore: SecureKeyStore, historyStore: ChatHistoryStore) {
     val api = remember { OpenJarvisApi() }
     val scope = rememberCoroutineScope()
+    val messages = remember {
+        mutableStateListOf<ChatMessage>().apply { addAll(historyStore.load()) }
+    }
     var serverUrl by remember { mutableStateOf("") }
     var apiKey by remember { mutableStateOf("") }
     var model by remember { mutableStateOf("") }
     var prompt by remember { mutableStateOf("") }
-    var answer by remember { mutableStateOf("") }
+    var assistantDraft by remember { mutableStateOf("") }
     var status by remember { mutableStateOf("Connect to your OpenJarvis server to begin.") }
     var busy by remember { mutableStateOf(false) }
 
@@ -107,13 +112,15 @@ private fun JarvisScreen(keyStore: SecureKeyStore) {
                 runTask {
                     require(apiKey.isNotBlank()) { "Enter your server API key." }
                     status = "Checking server…"
-                    val models = withContext(Dispatchers.IO) {
+                    val modelsFound = withContext(Dispatchers.IO) {
                         api.checkConnection(serverUrl, apiKey)
                     }
-                    require(models.isNotEmpty()) { "Connected, but the server has no available models." }
+                    require(modelsFound.isNotEmpty()) {
+                        "Connected, but the server has no available models."
+                    }
                     keyStore.saveApiKey(apiKey)
-                    model = models.first()
-                    status = "Connected · ${models.size} model(s) available"
+                    model = modelsFound.first()
+                    status = "Connected · ${modelsFound.size} model(s) available"
                 }
             },
             enabled = !busy,
@@ -124,25 +131,64 @@ private fun JarvisScreen(keyStore: SecureKeyStore) {
         if (model.isNotBlank()) {
             Text("Model: $model", style = MaterialTheme.typography.labelLarge)
         }
-        Spacer(Modifier.height(4.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Conversation", style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.weight(1f))
+            Button(
+                onClick = {
+                    messages.clear()
+                    historyStore.clear()
+                    assistantDraft = ""
+                    status = "Local conversation history cleared."
+                },
+                enabled = !busy && messages.isNotEmpty(),
+            ) {
+                Text("Clear")
+            }
+        }
+        messages.forEach { message ->
+            Text(
+                if (message.role == "user") "You" else "Jarvis",
+                style = MaterialTheme.typography.labelLarge,
+            )
+            Text(message.content, style = MaterialTheme.typography.bodyLarge)
+        }
+        if (assistantDraft.isNotEmpty()) {
+            Text("Jarvis", style = MaterialTheme.typography.labelLarge)
+            Text(assistantDraft, style = MaterialTheme.typography.bodyLarge)
+        }
         OutlinedTextField(
             value = prompt,
             onValueChange = { prompt = it },
             modifier = Modifier.fillMaxWidth(),
             label = { Text("Ask Jarvis") },
             minLines = 3,
+            enabled = !busy,
         )
         Button(
             onClick = {
+                val question = prompt.trim()
                 runTask {
-                    require(apiKey.isNotBlank()) { "Connect to your server first." }
-                    status = "Thinking…"
-                    val result = withContext(Dispatchers.IO) {
-                        api.sendMessage(serverUrl, apiKey, model, prompt)
+                    require(apiKey.isNotBlank() && model.isNotBlank()) {
+                        "Connect to your server first."
                     }
-                    answer = result
+                    require(question.isNotBlank()) { "Enter a message first." }
+                    messages.add(ChatMessage("user", question))
                     prompt = ""
-                    status = "Reply received"
+                    assistantDraft = ""
+                    status = "Jarvis is thinking…"
+                    val response = api.streamMessage(
+                        serverUrl,
+                        apiKey,
+                        model,
+                        messages.toList(),
+                    ) { delta ->
+                        assistantDraft += delta
+                    }
+                    messages.add(ChatMessage("assistant", response))
+                    historyStore.save(messages.toList())
+                    assistantDraft = ""
+                    status = "Reply complete · conversation saved on this device"
                 }
             },
             enabled = !busy && model.isNotBlank() && prompt.isNotBlank(),
@@ -158,9 +204,6 @@ private fun JarvisScreen(keyStore: SecureKeyStore) {
         } else {
             Text(status, style = MaterialTheme.typography.bodySmall)
         }
-        if (answer.isNotBlank()) {
-            Text("Jarvis", style = MaterialTheme.typography.titleMedium)
-            Text(answer, style = MaterialTheme.typography.bodyLarge)
-        }
+        Spacer(Modifier.height(8.dp))
     }
 }

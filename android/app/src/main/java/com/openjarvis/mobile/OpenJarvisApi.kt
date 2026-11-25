@@ -1,16 +1,19 @@
 package com.openjarvis.mobile
 
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
 class OpenJarvisApi {
     private val client = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(90, TimeUnit.SECONDS)
+        .readTimeout(120, TimeUnit.SECONDS)
         .writeTimeout(30, TimeUnit.SECONDS)
         .build()
 
@@ -32,32 +35,49 @@ class OpenJarvisApi {
         }
     }
 
-    fun sendMessage(baseUrl: String, apiKey: String, model: String, message: String): String {
+    suspend fun streamMessage(
+        baseUrl: String,
+        apiKey: String,
+        model: String,
+        messages: List<ChatMessage>,
+        onDelta: suspend (String) -> Unit,
+    ): String = withContext(Dispatchers.IO) {
         require(model.isNotBlank()) { "Choose a model before sending a message" }
-        require(message.isNotBlank()) { "Message cannot be blank" }
+        require(messages.isNotEmpty()) { "Message history cannot be empty" }
+        val payloadMessages = JSONArray()
+        messages.forEach { message ->
+            payloadMessages.put(
+                JSONObject().put("role", message.role).put("content", message.content),
+            )
+        }
         val payload = JSONObject()
             .put("model", model)
-            .put("messages", org.json.JSONArray().put(
-                JSONObject().put("role", "user").put("content", message),
-            ))
-            .put("stream", false)
+            .put("messages", payloadMessages)
+            .put("stream", true)
             .toString()
         val request = Request.Builder()
             .url("${validateServerUrl(baseUrl)}/v1/chat/completions")
             .header("Authorization", "Bearer $apiKey")
+            .header("Accept", "text/event-stream")
             .post(payload.toRequestBody(JSON))
             .build()
+
+        val result = StringBuilder()
         client.newCall(request).execute().use { response ->
-            val body = response.body?.string().orEmpty()
-            if (!response.isSuccessful) error("Server returned HTTP ${response.code}")
-            val choices = JSONObject(body).optJSONArray("choices")
-                ?: error("Server response did not contain chat choices")
-            val content = choices.optJSONObject(0)
-                ?.optJSONObject("message")
-                ?.optString("content")
-                .orEmpty()
-            return content.ifBlank { "The server returned an empty response." }
+            if (!response.isSuccessful) {
+                val detail = response.body?.string().orEmpty().take(500)
+                error("Server returned HTTP ${response.code}${if (detail.isBlank()) "" else ": $detail"}")
+            }
+            val source = response.body?.source() ?: error("Server returned an empty response")
+            val parser = ChatStreamParser()
+            while (true) {
+                val line = source.readUtf8Line() ?: break
+                val delta = parser.contentFromLine(line) ?: continue
+                result.append(delta)
+                withContext(Dispatchers.Main.immediate) { onDelta(delta) }
+            }
         }
+        result.toString().ifBlank { "The server returned an empty response." }
     }
 
     internal fun validateServerUrl(input: String): String {

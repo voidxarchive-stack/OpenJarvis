@@ -1,21 +1,22 @@
-# OpenJarvis Android companion (MVP)
+# OpenJarvis Android companion
 
-This is the first native Android client for OpenJarvis. It is deliberately a
-small, testable foundation rather than a claim that the full Jarvis 2.0
-experience is complete.
+The Android client is a native Kotlin + Jetpack Compose application.
 
 ## Current scope
 
-- Native Kotlin + Jetpack Compose application.
 - Connects to an existing OpenJarvis API server over HTTPS.
-- Authenticates API requests with `Authorization: Bearer <key>`.
-- Discovers an available model through `GET /v1/models`.
-- Sends a non-streaming chat request to `POST /v1/chat/completions`.
-- Encrypts the API key with an AES-GCM key held by Android Keystore.
+- Authenticates requests with `Authorization: Bearer <key>`.
+- Discovers available models through `GET /v1/models`.
+- Streams assistant replies from `POST /v1/chat/completions` using
+  OpenAI-compatible Server-Sent Events.
+- Sends the full conversation context with each chat request.
+- Saves the latest 40 user/assistant messages in app-private local storage.
+- Encrypts the server API key with an AES-GCM key held by Android Keystore.
+- Provides a clear-history action; conversation history stays on this device.
 - Does not request microphone, contacts, calendar, accessibility, or
   notification permissions.
 
-## Build
+## Build and test
 
 From the repository root:
 
@@ -24,31 +25,24 @@ cd android
 gradle :app:testDebugUnitTest :app:assembleDebug
 ```
 
-The CI workflow runs the same build and test tasks on GitHub-hosted runners.
-The debug APK is produced at
-`android/app/build/outputs/apk/debug/app-debug.apk`.
+GitHub Actions runs the same unit-test and debug-APK build tasks. The APK is
+produced at `android/app/build/outputs/apk/debug/app-debug.apk`.
 
 ## Server requirements
 
 Run OpenJarvis with the server extra and configure an API key before exposing
-it beyond loopback. The server's `/health` endpoint is intentionally not used
-as proof of authentication; the app authenticates by requesting
-`/v1/models`.
+it beyond loopback. Use a trusted HTTPS endpoint. The app rejects plain HTTP
+connections and does not place API keys in URLs.
 
-Use a trusted HTTPS endpoint. The app rejects plain HTTP connections. Do not
-put API keys in URLs, screenshots, source files, or issue reports.
+## Privacy and limitations
 
-## Deliberate limitations in this first slice
+Chat history is stored locally in app-private SharedPreferences, is bounded to
+40 messages, and is not encrypted separately in this iteration. Clear it from
+the app when needed. The API key is encrypted using Android Keystore. Do not
+use this preview for highly sensitive conversations until encrypted history
+storage and a user-facing connection-management flow are implemented.
 
-- No wake word or background microphone service.
-- No speech recognition or text-to-speech.
-- No document/video capture or screen reading.
-- No app launching or typing into other apps.
-- No Gmail or Calendar OAuth integration.
-- No local Android inference runtime yet; inference is performed by the
-  configured OpenJarvis server.
-
-These are separate milestones because they need their own permission,
-privacy, lifecycle, and device tests. The next slices should add streaming
-chat and conversation history, then voice interaction, followed by explicitly
-approved Android actions and individually connected services.
+This milestone does not yet include wake-word detection, speech recognition,
+text-to-speech, document/video capture, app launching, typing into other apps,
+Gmail/Calendar OAuth, or on-device model inference. Those remain separate
+milestones with dedicated permission, privacy, and device testing.
