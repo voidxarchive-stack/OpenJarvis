@@ -11,7 +11,7 @@ on:
       - ".github/workflows/refresh-rust-lockfiles.yml"
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   refresh:
@@ -19,23 +19,30 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
-
       - name: Update backend URL dependency
         working-directory: rust
         run: cargo update -p url --precise 2.5.9
-
       - name: Update desktop URL and cookie dependencies
         working-directory: frontend/src-tauri
         run: |
           cargo update -p url --precise 2.5.9
           cargo update -p cookie --precise 0.18.3
-
       - name: Verify lockfile selections
         run: |
           grep -A 2 '^name = "url"$' rust/Cargo.lock
           grep -A 2 '^name = "url"$' frontend/src-tauri/Cargo.lock
           grep -A 2 '^name = "cookie"$' frontend/src-tauri/Cargo.lock
-
+      - name: Commit refreshed lockfiles
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add rust/Cargo.lock frontend/src-tauri/Cargo.lock
+          if git diff --cached --quiet; then
+            echo "Lockfiles are already up to date."
+          else
+            git commit -m "fix: update vulnerable Rust dependencies"
+            git push
+          fi
       - uses: actions/upload-artifact@v7
         with:
           name: refreshed-rust-lockfiles
