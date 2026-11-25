@@ -15,7 +15,7 @@ class OpenJarvisApi {
         .build()
 
     fun checkConnection(baseUrl: String, apiKey: String): List<String> {
-        val url = validatedBaseUrl(baseUrl)
+        val url = validateServerUrl(baseUrl)
         val request = Request.Builder()
             .url("$url/v1/models")
             .header("Authorization", "Bearer $apiKey")
@@ -43,7 +43,7 @@ class OpenJarvisApi {
             .put("stream", false)
             .toString()
         val request = Request.Builder()
-            .url("${validatedBaseUrl(baseUrl)}/v1/chat/completions")
+            .url("${validateServerUrl(baseUrl)}/v1/chat/completions")
             .header("Authorization", "Bearer $apiKey")
             .post(payload.toRequestBody(JSON))
             .build()
@@ -60,7 +60,7 @@ class OpenJarvisApi {
         }
     }
 
-    private fun validatedBaseUrl(input: String): String {
+    internal fun validateServerUrl(input: String): String {
         val normalized = input.trim().trimEnd('/')
         val uri = java.net.URI(normalized)
         require(uri.scheme.equals("https", ignoreCase = true)) {
