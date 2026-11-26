@@ -608,13 +608,13 @@ private fun JarvisScreen(
                 require(modelsFound.isNotEmpty()) {
                     "The server responded, but it returned no model IDs. Check that its /v1/models endpoint is configured."
                 }
+                availableModels = modelsFound
                 val requestedModel = model.trim()
                 require(requestedModel.isBlank() || requestedModel in modelsFound) {
                     "Model ID not found: $requestedModel. Available model IDs: ${modelsFound.joinToString(", ")}"
                 }
                 if (apiKey.isBlank()) keyStore.clear() else keyStore.saveApiKey(apiKey)
                 keyStore.saveServerUrl(serverUrl.trim().trimEnd('/'))
-                availableModels = modelsFound
                 if (requestedModel.isBlank()) model = modelsFound.first()
                 settingsStore.saveModel(model)
                 connected = true
@@ -653,6 +653,7 @@ private fun JarvisScreen(
                 messages.add(ChatMessage("assistant", resultMessage))
                 persistCurrentConversation()
                 prompt = ""
+                if (questionOverride != null) liveQuestion = ""
                 status = resultMessage
                 return
             }
@@ -682,6 +683,7 @@ private fun JarvisScreen(
         val messageContent = if (attachmentText.isNullOrBlank()) question else {
             "$question\n\n$attachmentText"
         }
+        if (questionOverride != null) liveQuestion = ""
         messages.add(ChatMessage("user", messageContent, screenFrame, attachmentImages))
         persistCurrentConversation()
         prompt = ""
@@ -993,6 +995,7 @@ private fun JarvisScreen(
                         apiKey = ""
                         serverUrl = ""
                         connected = false
+                        connectionFeedback = ""
                         model = ""
                         settingsStore.saveModel("")
                         status = "AI connection details removed from this device."
