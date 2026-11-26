@@ -12,6 +12,8 @@ class AppCommandParserTest {
         assertEquals("GPay", extractOpenAppTarget("Hey Jarvis, open GPay"))
         assertEquals("WhatsApp", extractOpenAppTarget("please open WhatsApp app"))
         assertEquals("Calculator", extractOpenAppTarget("launch the Calculator"))
+        assertEquals("GPay", extractOpenAppTarget("GPay kholo"))
+        assertEquals("Google Pay", extractOpenAppTarget("Google Pay open karo"))
     }
 
     @Test
