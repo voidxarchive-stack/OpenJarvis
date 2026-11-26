@@ -464,6 +464,7 @@ private fun JarvisScreen(
                     try {
                         speechInput.launch(intent)
                     } catch (_: ActivityNotFoundException) {
+                        routeWakeSpeechToLive = false
                         status = "Wake word detected, but no speech recognizer is installed."
                     }
                 }
