@@ -36,6 +36,8 @@ internal class AppAccessStore(context: Context) {
             "bank", "banking", "upi", "wallet", "cred", "mobikwik", "amazonpay",
             "bhim", "yono", "sbi", "icici", "hdfc", "kotak", "axisbank",
             "imobile", "bobworld", "canara", "unionbank", "idfc", "federalbank",
+            "google wallet", "amazon pay", "paypal", "freecharge", "jiofinance",
+            "groww", "zerodha", "upstox",
         )
         return if (sensitiveMarkers.any(key::contains)) AppAccessLevel.DENY else AppAccessLevel.READ_ONLY
     }
