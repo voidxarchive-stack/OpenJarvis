@@ -10,6 +10,28 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
+/** Encodes plain text or a single screen image as an OpenAI-compatible message. */
+internal fun chatMessageToJson(message: ChatMessage): JSONObject {
+    val payload = JSONObject().put("role", message.role)
+    val image = message.imageBase64
+    if (image.isNullOrBlank()) {
+        payload.put("content", message.content)
+    } else {
+        val content = JSONArray()
+            .put(JSONObject().put("type", "text").put("text", message.content))
+            .put(
+                JSONObject()
+                    .put("type", "image_url")
+                    .put(
+                        "image_url",
+                        JSONObject().put("url", "data:image/jpeg;base64,$image"),
+                    ),
+            )
+        payload.put("content", content)
+    }
+    return payload
+}
+
 class OpenJarvisApi {
     private val client = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS)
@@ -45,11 +67,7 @@ class OpenJarvisApi {
         require(model.isNotBlank()) { "Choose a model before sending a message" }
         require(messages.isNotEmpty()) { "Message history cannot be empty" }
         val payloadMessages = JSONArray()
-        messages.forEach { message ->
-            payloadMessages.put(
-                JSONObject().put("role", message.role).put("content", message.content),
-            )
-        }
+        messages.forEach { message -> payloadMessages.put(chatMessageToJson(message)) }
         val payload = JSONObject()
             .put("model", model)
             .put("messages", payloadMessages)
