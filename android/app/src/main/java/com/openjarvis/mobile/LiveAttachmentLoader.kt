@@ -113,8 +113,16 @@ internal fun loadLiveAttachment(context: Context, uri: Uri): LiveAttachment {
             }
         }
         mime == "text/plain" || displayName.endsWith(".txt", ignoreCase = true) -> {
-            val text = resolver.openInputStream(uri)?.bufferedReader()?.use { it.readText().take(MAX_TEXT_CHARS) }
-                ?: error("Android couldn't read this text file.")
+            val text = resolver.openInputStream(uri)?.bufferedReader()?.use { reader ->
+                val buffer = CharArray(4_096)
+                val output = StringBuilder()
+                while (output.length < MAX_TEXT_CHARS) {
+                    val count = reader.read(buffer, 0, minOf(buffer.size, MAX_TEXT_CHARS - output.length))
+                    if (count <= 0) break
+                    output.append(buffer, 0, count)
+                }
+                output.toString()
+            } ?: error("Android couldn't read this text file.")
             LiveAttachment(displayName, mime, extractedText = text, note = "Text content extracted locally.")
         }
         else -> error("Unsupported file type. Choose a PDF, image, video or plain-text file.")
