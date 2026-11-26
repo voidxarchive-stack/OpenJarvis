@@ -61,7 +61,7 @@ internal class ConversationStore(
         return try {
             val array = JSONArray(raw)
             (0 until array.length()).mapNotNull conversation@{ index ->
-                val item = array.optJSONObject(index) ?: return@mapNotNull null
+                val item = array.optJSONObject(index) ?: return@conversation null
                 val id = item.optString("id").takeIf(String::isNotBlank) ?: return@conversation null
                 val messagesArray = item.optJSONArray("messages") ?: JSONArray()
                 val messages = (0 until messagesArray.length()).mapNotNull message@{ messageIndex ->
