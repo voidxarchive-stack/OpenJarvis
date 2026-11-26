@@ -1700,7 +1700,7 @@ private fun HubScreen(
     appAccessStore: AppAccessStore,
     onStatus: (String) -> Unit,
 ) {
-    val installedApps = remember(context) { queryInstalledLauncherApps(context) }
+    var installedApps by remember(context) { mutableStateOf(queryInstalledLauncherApps(context)) }
     var appSearch by remember { mutableStateOf("") }
     Column(
         modifier = Modifier
@@ -1726,7 +1726,18 @@ private fun HubScreen(
             modifier = Modifier.fillMaxWidth(),
         ) { Text("Open app") }
 
-        Text("APP ACCESS CONTROL", color = Muted, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                "APP ACCESS CONTROL",
+                color = Muted,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.weight(1f),
+            )
+            OutlinedButton(onClick = { installedApps = queryInstalledLauncherApps(context) }) {
+                Text("Refresh")
+            }
+        }
         Text(
             "Choose how Jarvis may interact with each launchable app. Gmail and payment/banking apps start blocked. These are Jarvis settings, not Android system permissions.",
             color = Muted,
