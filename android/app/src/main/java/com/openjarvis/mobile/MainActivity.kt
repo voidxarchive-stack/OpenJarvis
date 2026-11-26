@@ -234,6 +234,7 @@ private fun JarvisScreen(
     var replyLanguage by remember { mutableStateOf(settingsStore.loadLanguage()) }
     var speakReplies by remember { mutableStateOf(settingsStore.loadSpeakReplies()) }
     var status by remember { mutableStateOf("Ready when you are.") }
+    var connectionFeedback by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var connected by remember { mutableStateOf(false) }
     var wakeDetector by remember { mutableStateOf<OpenWakeWord?>(null) }
@@ -241,6 +242,7 @@ private fun JarvisScreen(
     var routeWakeSpeechToLive by remember { mutableStateOf(false) }
     var tts by remember { mutableStateOf<TextToSpeech?>(null) }
     var ttsReady by remember { mutableStateOf(false) }
+    var liveGreetingSpoken by remember { mutableStateOf(false) }
     var liveQuestion by remember { mutableStateOf("Explain what is on my screen and guide me through the next step.") }
     var liveAttachment by remember { mutableStateOf<LiveAttachment?>(null) }
     val liveFrameBase64 by LiveScreenCaptureState.frameBase64.collectAsState()
@@ -546,8 +548,21 @@ private fun JarvisScreen(
         }
     }
 
+    LaunchedEffect(destination, ttsReady) {
+        if (destination == Destination.LIVE && ttsReady && !liveGreetingSpoken) {
+            liveGreetingSpoken = true
+            tts?.language = Locale.getDefault()
+            tts?.speak(
+                "Hello, I'm Jarvis. I'm here to help. You can talk to me or share your screen.",
+                TextToSpeech.QUEUE_FLUSH,
+                null,
+                "jarvis-live-welcome",
+            )
+        }
+    }
+
     LaunchedEffect(Unit) {
-        if (serverUrl.isNotBlank() && apiKey.isNotBlank()) {
+        if (serverUrl.isNotBlank() && (apiKey.isNotBlank() || api.isLocalLoopbackHttp(serverUrl))) {
             status = "Restoring your saved AI connection…"
             try {
                 val modelsFound = withContext(Dispatchers.IO) {
@@ -580,22 +595,41 @@ private fun JarvisScreen(
         scope.launch {
             busy = true
             connected = false
+            connectionFeedback = ""
             status = "Checking your OpenJarvis server…"
             try {
-                require(apiKey.isNotBlank()) { "Enter your server API key first." }
+                api.validateServerUrl(serverUrl)
+                require(apiKey.isNotBlank() || api.isLocalLoopbackHttp(serverUrl)) {
+                    "Enter the server API key. A blank key is accepted only for this device's local loopback server."
+                }
                 val modelsFound = withContext(Dispatchers.IO) {
                     api.checkConnection(serverUrl, apiKey)
                 }
-                require(modelsFound.isNotEmpty()) { "Connected, but the server returned no models." }
-                keyStore.saveApiKey(apiKey)
+                require(modelsFound.isNotEmpty()) {
+                    "The server responded, but it returned no model IDs. Check that its /v1/models endpoint is configured."
+                }
+                val requestedModel = model.trim()
+                require(requestedModel.isBlank() || requestedModel in modelsFound) {
+                    "Model ID not found: $requestedModel. Available model IDs: ${modelsFound.joinToString(", ")}"
+                }
+                if (apiKey.isBlank()) keyStore.clear() else keyStore.saveApiKey(apiKey)
                 keyStore.saveServerUrl(serverUrl.trim().trimEnd('/'))
                 availableModels = modelsFound
-                if (model !in modelsFound) model = modelsFound.first()
+                if (requestedModel.isBlank()) model = modelsFound.first()
                 settingsStore.saveModel(model)
                 connected = true
-                status = "Connected securely · " + modelsFound.size + " model(s) found."
+                connectionFeedback = "Connected. ${modelsFound.size} model(s) found; selected model: $model"
+                status = "AI server connected · ${modelsFound.size} model(s) found."
             } catch (error: Exception) {
-                status = error.message ?: "Couldn't connect. Check the URL and key."
+                val detail = when (error) {
+                    is java.net.UnknownHostException -> "Server host not found. Check the server URL."
+                    is java.net.ConnectException -> "Couldn't reach the server. Check that it is running and the port is correct."
+                    is java.net.SocketTimeoutException -> "The server took too long to respond. Check the connection and try again."
+                    is javax.net.ssl.SSLException -> "Secure HTTPS connection failed. Check the server certificate and URL."
+                    else -> error.message ?: "Couldn't connect. Check the URL, API key and model ID."
+                }
+                connectionFeedback = detail
+                status = detail
             } finally {
                 busy = false
             }
@@ -624,7 +658,9 @@ private fun JarvisScreen(
             }
         }
 
-        if (apiKey.isBlank() || serverUrl.isBlank() || model.isBlank()) {
+        if (serverUrl.isBlank() || model.isBlank() ||
+            (apiKey.isBlank() && !api.isLocalLoopbackHttp(serverUrl))
+        ) {
             status = "Connect your AI server in Settings before chatting."
             destination = Destination.SETTINGS
             return
@@ -856,12 +892,32 @@ private fun JarvisScreen(
                     isSharing = liveSharing,
                     frameBase64 = liveFrameBase64,
                     attachment = liveAttachment,
+                    conversationMessages = messages.toList().takeLast(8),
+                    assistantDraft = assistantDraft,
+                    busy = busy,
                     question = liveQuestion,
                     onQuestionChange = { liveQuestion = it },
                     onStartSharing = ::requestScreenShare,
                     onStopSharing = ::stopScreenShare,
                     onPickAttachment = {
                         attachmentInput.launch(arrayOf("application/pdf", "image/*", "video/*", "text/plain"))
+                    },
+                    onTalk = {
+                        destination = Destination.LIVE
+                        routeWakeSpeechToLive = true
+                        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                            putExtra(
+                                RecognizerIntent.EXTRA_LANGUAGE_MODEL,
+                                RecognizerIntent.LANGUAGE_MODEL_FREE_FORM,
+                            )
+                            putExtra(RecognizerIntent.EXTRA_PROMPT, "Talk to Jarvis Live")
+                        }
+                        try {
+                            speechInput.launch(intent)
+                        } catch (_: ActivityNotFoundException) {
+                            routeWakeSpeechToLive = false
+                            status = "No speech-recognition app is installed."
+                        }
                     },
                     onRemoveAttachment = { liveAttachment = null },
                     onAskAboutContent = { frame, attachment ->
@@ -876,17 +932,12 @@ private fun JarvisScreen(
                                 }
                             }
                         }
-                        if (frame.isNullOrBlank() && images.isEmpty() && attachmentText.isNullOrBlank()) {
-                            status = "Share an app/screen or attach a supported file first."
-                        } else {
-                            destination = Destination.CHAT
-                            sendMessage(
-                                screenFrame = frame,
-                                questionOverride = liveQuestion,
-                                attachmentImages = images,
-                                attachmentText = attachmentText,
-                            )
-                        }
+                        sendMessage(
+                            screenFrame = frame,
+                            questionOverride = liveQuestion,
+                            attachmentImages = images,
+                            attachmentText = attachmentText,
+                        )
                     },
                 )
                 Destination.HUB -> HubScreen(
@@ -900,17 +951,25 @@ private fun JarvisScreen(
                     onServerUrlChange = {
                         serverUrl = it
                         connected = false
+                        connectionFeedback = ""
+                        availableModels = emptyList()
                         keyStore.saveServerUrl(it)
                     },
                     apiKey = apiKey,
                     onApiKeyChange = {
                         apiKey = it
                         connected = false
+                        connectionFeedback = ""
                         if (it.isBlank()) keyStore.clear() else keyStore.saveApiKey(it)
                     },
                     model = model,
-                    onModelChange = { model = it; settingsStore.saveModel(it) },
+                    onModelChange = {
+                        model = it
+                        connectionFeedback = ""
+                        settingsStore.saveModel(it)
+                    },
                     availableModels = availableModels,
+                    connectionFeedback = connectionFeedback,
                     connected = connected,
                     busy = busy,
                     personality = personality,
@@ -1129,11 +1188,15 @@ private fun LiveScreen(
     isSharing: Boolean,
     frameBase64: String?,
     attachment: LiveAttachment?,
+    conversationMessages: List<ChatMessage>,
+    assistantDraft: String,
+    busy: Boolean,
     question: String,
     onQuestionChange: (String) -> Unit,
     onStartSharing: () -> Unit,
     onStopSharing: () -> Unit,
     onPickAttachment: () -> Unit,
+    onTalk: () -> Unit,
     onRemoveAttachment: () -> Unit,
     onAskAboutContent: (String?, LiveAttachment?) -> Unit,
 ) {
@@ -1172,15 +1235,25 @@ private fun LiveScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                JarvisOrb(active = isSharing)
+                JarvisOrb(active = isSharing || busy)
                 Text(
-                    if (isSharing) "JARVIS IS READY" else "START A LIVE SESSION",
-                    color = if (isSharing) Green else Cyan,
+                    if (busy) "JARVIS IS THINKING"
+                    else if (isSharing) "SCREEN SHARING IS ACTIVE"
+                    else "JARVIS LIVE IS READY",
+                    color = if (busy || isSharing) Green else Cyan,
                     fontWeight = FontWeight.Bold,
                 )
                 Text(
-                    if (isSharing) "Switch to the app you want help with, then return here to ask about its latest frame."
-                    else "Android will ask what to share. Choose a single app window when available, or share the full display.",
+                    "Hello, I'm Jarvis. I'm here to help. Talk to me or share your screen.",
+                    color = White,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Text(
+                    when {
+                        busy -> "Working on your request…"
+                        isSharing -> "Your approved screen is ready. Ask a question below whenever you need help."
+                        else -> "You can start with a normal voice or text conversation, then share an app whenever visual help is needed."
+                    },
                     color = Muted,
                     style = MaterialTheme.typography.bodySmall,
                 )
@@ -1191,6 +1264,34 @@ private fun LiveScreen(
                         onClick = onStartSharing,
                         colors = ButtonDefaults.buttonColors(containerColor = Cyan, contentColor = Void),
                     ) { Text("Share app or screen") }
+                }
+            }
+        }
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(18.dp),
+            colors = CardDefaults.cardColors(containerColor = Panel),
+        ) {
+            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("LIVE CONVERSATION", color = Cyan, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.weight(1f))
+                    StatusPill(
+                        if (busy) "THINKING" else if (conversationMessages.isEmpty()) "READY" else "ACTIVE",
+                        if (busy) Amber else Green,
+                    )
+                }
+                if (conversationMessages.isEmpty() && assistantDraft.isBlank()) {
+                    Text("Your conversation will appear here.", color = Muted, style = MaterialTheme.typography.bodySmall)
+                } else {
+                    conversationMessages.takeLast(6).forEach { MessageBubble(it) }
+                }
+                if (assistantDraft.isNotBlank()) MessageBubble(ChatMessage("assistant", assistantDraft))
+                if (busy && assistantDraft.isBlank()) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = Cyan)
+                        Text("Jarvis is thinking…", color = Muted, style = MaterialTheme.typography.bodySmall)
+                    }
                 }
             }
         }
@@ -1261,6 +1362,8 @@ private fun LiveScreen(
             maxLines = 4,
         )
         Row(verticalAlignment = Alignment.CenterVertically) {
+            OutlinedButton(onClick = onTalk, enabled = !busy) { Text("Talk") }
+            Spacer(Modifier.width(6.dp))
             Box {
                 OutlinedButton(onClick = { plusMenuExpanded = true }) { Text("＋") }
                 DropdownMenu(
@@ -1286,8 +1389,7 @@ private fun LiveScreen(
             Spacer(Modifier.width(10.dp))
             Button(
                 onClick = { onAskAboutContent(if (isSharing) frameBase64 else null, attachment) },
-                enabled = question.isNotBlank() &&
-                    ((isSharing && !frameBase64.isNullOrBlank()) || attachment != null),
+                enabled = question.isNotBlank() && !busy,
                 modifier = Modifier.weight(1f),
                 colors = ButtonDefaults.buttonColors(containerColor = Blue, contentColor = White),
             ) {
@@ -1295,7 +1397,7 @@ private fun LiveScreen(
             }
         }
         Text(
-            "Privacy: Android displays its own sharing approval. Jarvis samples the selected app/window locally. Frames and file contents are sent to your configured AI server only after you tap Ask. You can stop screen sharing at any time.",
+            "Your screen or attachment is sent to your configured AI server only when you tap Ask. Stop sharing whenever you choose.",
             color = Muted,
             style = MaterialTheme.typography.labelSmall,
         )
@@ -1378,9 +1480,9 @@ private fun ChatScreen(
             if (messages.isEmpty() && assistantDraft.isEmpty()) {
                 Card(colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(22.dp)) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("Let's think together.", color = Cyan, style = MaterialTheme.typography.titleMedium)
-                        Text("Each conversation is saved separately. Open History to return to older chats, rename them or pin important ones.", color = Muted)
-                        Text("Memory is separate: only short details you explicitly save there are reused as context.", color = Muted, style = MaterialTheme.typography.bodySmall)
+                        Text("Hello! I'm Jarvis.", color = Cyan, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                        Text("What would you like to work on today?", color = White, style = MaterialTheme.typography.bodyLarge)
+                        Text("Ask anything, or try one of these.", color = Muted, style = MaterialTheme.typography.bodySmall)
                     }
                 }
                 listOf(
@@ -1924,6 +2026,7 @@ private fun SettingsScreen(
     model: String,
     onModelChange: (String) -> Unit,
     availableModels: List<String>,
+    connectionFeedback: String,
     connected: Boolean,
     busy: Boolean,
     personality: String,
@@ -1956,7 +2059,7 @@ private fun SettingsScreen(
                     onValueChange = onServerUrlChange,
                     modifier = Modifier.fillMaxWidth(),
                     label = { Text("OpenJarvis server URL") },
-                    placeholder = { Text("https://your-server.example") },
+                    placeholder = { Text("https://server.example or http://127.0.0.1:8080") },
                     singleLine = true,
                 )
                 OutlinedTextField(
@@ -1979,16 +2082,27 @@ private fun SettingsScreen(
                 }
                 Button(
                     onClick = onConnect,
-                    enabled = !busy && serverUrl.isNotBlank() && apiKey.isNotBlank(),
+                    enabled = !busy && serverUrl.isNotBlank(),
                     modifier = Modifier.fillMaxWidth(),
                     colors = ButtonDefaults.buttonColors(containerColor = Cyan, contentColor = Void),
                 ) {
-                    Text(if (busy) "Connecting…" else "Verify & connect")
+                    Text(if (busy) "Checking…" else "Verify & connect")
                 }
-                OutlinedButton(onClick = onClearKey, enabled = !busy && apiKey.isNotBlank(), modifier = Modifier.fillMaxWidth()) {
+                if (connectionFeedback.isNotBlank()) {
+                    Text(
+                        connectionFeedback,
+                        color = if (connected) Green else Amber,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                OutlinedButton(onClick = onClearKey, enabled = !busy && (apiKey.isNotBlank() || serverUrl.isNotBlank()), modifier = Modifier.fillMaxWidth()) {
                     Text("Disconnect and clear saved key")
                 }
-                Text("Use a trusted HTTPS endpoint. Your API key is encrypted with Android Keystore and is never placed in the URL.", color = Muted, style = MaterialTheme.typography.labelSmall)
+                Text(
+                    "Remote servers must use HTTPS. HTTP is accepted only for 127.0.0.1 / localhost on this phone. The API key is kept out of the URL.",
+                    color = Muted,
+                    style = MaterialTheme.typography.labelSmall,
+                )
             }
         }
 
