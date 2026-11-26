@@ -596,8 +596,8 @@ private fun JarvisScreen(
                         Text("PERSONAL COMPANION", color = Muted, style = MaterialTheme.typography.labelSmall)
                     }
                     StatusPill(
-                        label = if (wakeListening) "LISTENING" else if (connected) "AI LINKED" else "STANDBY",
-                        color = if (wakeListening) Green else if (connected) Cyan else Muted,
+                        label = if (liveSharing) "LIVE SHARING" else if (wakeListening) "LISTENING" else if (connected) "AI LINKED" else "STANDBY",
+                        color = if (liveSharing || wakeListening) Green else if (connected) Cyan else Muted,
                     )
                 }
                 Spacer(Modifier.height(8.dp))
@@ -635,6 +635,7 @@ private fun JarvisScreen(
                     connected = connected,
                     model = model,
                     wakeListening = wakeListening,
+                    liveSharing = liveSharing,
                     memoryCount = memories.size,
                     messageCount = messages.size,
                     onChat = { destination = Destination.CHAT },
@@ -763,6 +764,7 @@ private fun HomeScreen(
     connected: Boolean,
     model: String,
     wakeListening: Boolean,
+    liveSharing: Boolean,
     memoryCount: Int,
     messageCount: Int,
     onChat: () -> Unit,
@@ -808,13 +810,21 @@ private fun HomeScreen(
                 }
                 JarvisOrb(active = wakeListening)
                 Text(
-                    if (wakeListening) "I'M LISTENING" else "READY WHEN YOU ARE",
-                    color = if (wakeListening) Green else Cyan,
+                    when {
+                        liveSharing -> "LIVE SCREEN SESSION ACTIVE"
+                        wakeListening -> "I'M LISTENING"
+                        else -> "READY WHEN YOU ARE"
+                    },
+                    color = if (liveSharing || wakeListening) Green else Cyan,
                     style = MaterialTheme.typography.labelLarge,
                     fontWeight = FontWeight.Bold,
                 )
                 Text(
-                    if (wakeListening) "Say “Hey Jarvis” to start talking." else "Tap below to speak, or open a conversation.",
+                    when {
+                        liveSharing -> "Your approved screen-share session is active. Open Live to ask about a frame."
+                        wakeListening -> "Say “Hey Jarvis” to start talking."
+                        else -> "Tap below to speak, or open a conversation."
+                    },
                     color = Muted,
                     style = MaterialTheme.typography.bodySmall,
                 )
