@@ -71,7 +71,7 @@ internal fun loadLiveAttachment(context: Context, uri: Uri): LiveAttachment {
                     )
                 }
             } else {
-                resolver.openInputStream(uri)?.use(BitmapFactory::decodeStream)
+                resolver.openInputStream(uri)?.use { stream -> BitmapFactory.decodeStream(stream) }
                     ?: error("Android couldn't read this image.")
             }
             LiveAttachment(displayName, mime, imageBase64 = listOf(bitmapToBase64(bitmap))).also {
