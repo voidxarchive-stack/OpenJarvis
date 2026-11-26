@@ -1794,8 +1794,8 @@ private fun HubScreen(
         )
         IntegrationCard(
             title = "Screen & documents",
-            detail = "Live screen sharing is available in the Live tab. PDF and image-file import are not implemented yet.",
-            status = "LIVE SCREEN READY",
+            detail = "Live supports Android-approved app/full-screen sharing, PDFs (up to 5 rendered pages), images, sampled video frames and plain-text files. Content is sent only after you tap Ask.",
+            status = "LIVE READY",
             color = Cyan,
         )
         IntegrationCard(
