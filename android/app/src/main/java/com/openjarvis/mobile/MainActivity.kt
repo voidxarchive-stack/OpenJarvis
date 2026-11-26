@@ -208,12 +208,15 @@ private fun JarvisScreen(
             listOf(SavedConversation.create()).also(conversationStore::saveAll)
         }
     }
+    val startupConversation = remember(initialConversations) {
+        initialConversations.maxByOrNull { it.updatedAt } ?: initialConversations.first()
+    }
     val conversations = remember {
         mutableStateListOf<SavedConversation>().apply { addAll(initialConversations) }
     }
-    var activeConversationId by remember { mutableStateOf(initialConversations.first().id) }
+    var activeConversationId by remember { mutableStateOf(startupConversation.id) }
     val messages = remember {
-        mutableStateListOf<ChatMessage>().apply { addAll(initialConversations.first().messages) }
+        mutableStateListOf<ChatMessage>().apply { addAll(startupConversation.messages) }
     }
     val memories = remember {
         mutableStateListOf<String>().apply { addAll(memoryStore.load()) }
@@ -322,7 +325,7 @@ private fun JarvisScreen(
         conversations.clear()
         conversations.addAll(next)
         if (id == activeConversationId) {
-            val selected = next.first()
+            val selected = next.maxByOrNull { it.updatedAt } ?: next.first()
             activeConversationId = selected.id
             messages.clear()
             messages.addAll(selected.messages)
@@ -2000,7 +2003,7 @@ private fun SettingsScreen(
                 Text("• Separate saved conversations with pin, rename and delete controls\n• User-managed Memory notes kept separately from chat history\n• Foreground-only Hey Jarvis wake phrase, speech input and spoken replies\n• Local app launching controlled by your per-app access choices\n• User-approved single-app/full-screen sharing and PDF, image, video-frame or text attachments in Live", color = Muted, style = MaterialTheme.typography.bodySmall)
                 Text("Not connected yet", color = White, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodySmall)
                 Text("Gmail and Google Calendar OAuth, proactive meeting alerts, in-app tapping/typing, full video/audio understanding and background wake-word listening are not enabled in this build.", color = Muted, style = MaterialTheme.typography.bodySmall)
-                Text("Security: Jarvis never gets payment access from the app list. Screen capture uses Android's own consent flow; attached content is sent only after you tap Ask.", color = Green, style = MaterialTheme.typography.bodySmall)
+                Text("Security: Gmail and payment apps default to Deny; Jarvis has no payment or transaction controls. Screen capture uses Android's own consent flow; attached content is sent only after you tap Ask.", color = Green, style = MaterialTheme.typography.bodySmall)
             }
         }
         Text("Voice input uses Android's speech recognizer. Spoken replies use the phone's installed text-to-speech voice. A dedicated ElevenLabs voice integration is not part of this build.", color = Muted, style = MaterialTheme.typography.labelSmall)
