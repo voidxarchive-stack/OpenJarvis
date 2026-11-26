@@ -33,6 +33,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -48,14 +49,18 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Divider
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -64,6 +69,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
@@ -194,9 +200,20 @@ private fun JarvisScreen(
     val api = remember { OpenJarvisApi() }
     val settingsStore = remember { CompanionSettingsStore(context) }
     val memoryStore = remember { PersonalMemoryStore(context) }
+    val conversationStore = remember { ConversationStore(context, historyStore) }
+    val appAccessStore = remember { AppAccessStore(context) }
     val scope = rememberCoroutineScope()
+    val initialConversations = remember {
+        conversationStore.loadAll().ifEmpty {
+            listOf(SavedConversation.create()).also(conversationStore::saveAll)
+        }
+    }
+    val conversations = remember {
+        mutableStateListOf<SavedConversation>().apply { addAll(initialConversations) }
+    }
+    var activeConversationId by remember { mutableStateOf(initialConversations.first().id) }
     val messages = remember {
-        mutableStateListOf<ChatMessage>().apply { addAll(historyStore.load()) }
+        mutableStateListOf<ChatMessage>().apply { addAll(initialConversations.first().messages) }
     }
     val memories = remember {
         mutableStateListOf<String>().apply { addAll(memoryStore.load()) }
@@ -221,8 +238,100 @@ private fun JarvisScreen(
     var tts by remember { mutableStateOf<TextToSpeech?>(null) }
     var ttsReady by remember { mutableStateOf(false) }
     var liveQuestion by remember { mutableStateOf("Explain what is on my screen and guide me through the next step.") }
+    var liveAttachment by remember { mutableStateOf<LiveAttachment?>(null) }
     val liveFrameBase64 by LiveScreenCaptureState.frameBase64.collectAsState()
     val liveSharing by LiveScreenCaptureState.isActive.collectAsState()
+
+    fun persistCurrentConversation() {
+        val existing = conversations.firstOrNull { it.id == activeConversationId }
+            ?: SavedConversation.create().also { conversations.add(0, it) }
+        val title = if (existing.title == "New chat") SavedConversation.titleFor(messages) else existing.title
+        val updated = existing.copy(
+            title = title,
+            updatedAt = System.currentTimeMillis(),
+            messages = messages.map { ChatMessage(it.role, it.content) },
+        )
+        val ordered = (conversations.filterNot { it.id == activeConversationId } + updated)
+            .sortedWith(compareByDescending<SavedConversation> { it.pinned }.thenByDescending { it.updatedAt })
+        conversations.clear()
+        conversations.addAll(ordered)
+        conversationStore.saveAll(ordered)
+    }
+
+    fun startNewConversation() {
+        if (busy) {
+            status = "Finish the current reply before starting a new chat."
+            return
+        }
+        persistCurrentConversation()
+        val fresh = SavedConversation.create()
+        conversations.add(0, fresh)
+        activeConversationId = fresh.id
+        messages.clear()
+        prompt = ""
+        assistantDraft = ""
+        tts?.stop()
+        conversationStore.saveAll(conversations.toList())
+        destination = Destination.CHAT
+        status = "Started a new conversation. Your previous chats are saved in History."
+    }
+
+    fun openConversation(id: String) {
+        if (busy) {
+            status = "Wait for the current reply to finish before switching chats."
+            return
+        }
+        persistCurrentConversation()
+        val selected = conversations.firstOrNull { it.id == id } ?: return
+        activeConversationId = selected.id
+        messages.clear()
+        messages.addAll(selected.messages)
+        prompt = ""
+        assistantDraft = ""
+        destination = Destination.CHAT
+        status = "Opened \"${selected.title}\"."
+    }
+
+    fun renameConversation(id: String, title: String) {
+        val cleanTitle = title.trim().take(60)
+        if (cleanTitle.isBlank()) return
+        val updated = conversations.map { item ->
+            if (item.id == id) item.copy(title = cleanTitle, updatedAt = System.currentTimeMillis()) else item
+        }.sortedWith(compareByDescending<SavedConversation> { it.pinned }.thenByDescending { it.updatedAt })
+        conversations.clear()
+        conversations.addAll(updated)
+        conversationStore.saveAll(updated)
+    }
+
+    fun toggleConversationPin(id: String) {
+        val updated = conversations.map { item ->
+            if (item.id == id) item.copy(pinned = !item.pinned) else item
+        }.sortedWith(compareByDescending<SavedConversation> { it.pinned }.thenByDescending { it.updatedAt })
+        conversations.clear()
+        conversations.addAll(updated)
+        conversationStore.saveAll(updated)
+    }
+
+    fun deleteConversation(id: String) {
+        if (busy && id == activeConversationId) {
+            status = "Wait for the current reply before deleting this chat."
+            return
+        }
+        val remaining = conversations.filterNot { it.id == id }
+        val next = if (remaining.isEmpty()) listOf(SavedConversation.create()) else remaining
+        conversations.clear()
+        conversations.addAll(next)
+        if (id == activeConversationId) {
+            val selected = next.first()
+            activeConversationId = selected.id
+            messages.clear()
+            messages.addAll(selected.messages)
+            prompt = ""
+            assistantDraft = ""
+        }
+        conversationStore.saveAll(next)
+        status = "Conversation deleted from this device."
+    }
 
     val speechInput = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult(),
@@ -278,6 +387,26 @@ private fun JarvisScreen(
             }
         } else {
             status = "Screen sharing was cancelled. Nothing was captured."
+        }
+    }
+
+    val attachmentInput = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri != null) {
+            scope.launch {
+                status = "Reading the selected file locally…"
+                try {
+                    val loaded = withContext(Dispatchers.IO) { loadLiveAttachment(context, uri) }
+                    liveAttachment = loaded
+                    destination = Destination.LIVE
+                    status = "Attached ${loaded.displayName}. Review it in Live, then choose Ask."
+                } catch (error: Exception) {
+                    status = error.message ?: "Couldn't read that attachment."
+                }
+            }
+        } else {
+            status = "File selection cancelled."
         }
     }
 
