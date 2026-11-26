@@ -1788,7 +1788,7 @@ private fun HubScreen(
         )
         IntegrationCard(
             title = "Gmail",
-            detail = "Gmail can be opened from your phone. Read/search/reply through official OAuth is a future milestone.",
+            detail = "Jarvis has no Gmail read/search/reply access. Gmail is blocked by default in App Access Control; official OAuth is not connected.",
             status = "NOT CONNECTED",
             color = Muted,
         )
