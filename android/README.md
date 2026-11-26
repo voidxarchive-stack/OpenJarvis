@@ -51,7 +51,7 @@ cd android
 gradle :app:testDebugUnitTest :app:assembleDebug
 ```
 
-GitHub Actions runs the same unit-test and debug-APK build tasks. The APK is produced at `android/app/build/outputs/apk/debug/app-debug.apk`.
+GitHub Actions runs the same unit-test and debug-APK build tasks. The APK is produced at `android/app/build/outputs/apk/debug/app-debug.apk`. For pull requests, the Android workflow runs `:app:testDebugUnitTest` before `:app:assembleDebug` and uploads the APK as the `openjarvis-android-debug` artifact. A green result applies to the exact PR revision shown by that workflow run.
 
 ## Server connection
 
