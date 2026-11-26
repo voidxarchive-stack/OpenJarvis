@@ -5,17 +5,17 @@ import java.util.Locale
 /** Returns an app name only for an explicit local launch command. */
 internal fun extractOpenAppTarget(input: String): String? {
     val prefix = Regex(
-        """^\\s*(?:hey\\s+)?(?:jarvis[,:]?\\s+)?(?:please\\s+)?(?:open|launch|start)\\s+(?:the\\s+)?(.+?)\\s*$""",
+        """^\s*(?:hey\s+)?(?:jarvis[,:]?\s+)?(?:please\s+)?(?:open|launch|start)\s+(?:the\s+)?(.+?)\s*$""",
         RegexOption.IGNORE_CASE,
     ).find(input)
     val suffix = Regex(
-        """^\\s*(.+?)\\s+(?:app\\s+)?(?:kholo|khol(?:\\s+do)?|open\\s+karo|chalao)\\s*$""",
+        """^\s*(.+?)\s+(?:app\s+)?(?:kholo|khol(?:\s+do)?|open\s+karo|chalao)\s*$""",
         RegexOption.IGNORE_CASE,
     ).find(input)
 
     val target = (prefix?.groupValues?.getOrNull(1) ?: suffix?.groupValues?.getOrNull(1))
         ?.trim()
-        ?.replace(Regex("""\\s+app$""", RegexOption.IGNORE_CASE), "")
+        ?.replace(Regex("""\s+app$""", RegexOption.IGNORE_CASE), "")
         ?.trim()
         ?: return null
     if (target.isBlank() || target.equals("app", ignoreCase = true)) return null
