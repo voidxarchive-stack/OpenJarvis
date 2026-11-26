@@ -13,20 +13,19 @@ import java.util.concurrent.TimeUnit
 /** Encodes plain text or a single screen image as an OpenAI-compatible message. */
 internal fun chatMessageToJson(message: ChatMessage): JSONObject {
     val payload = JSONObject().put("role", message.role)
-    val image = message.imageBase64
-    if (image.isNullOrBlank()) {
+    val images = (listOfNotNull(message.imageBase64) + message.imageBase64List)
+        .filter(String::isNotBlank)
+    if (images.isEmpty()) {
         payload.put("content", message.content)
     } else {
-        val content = JSONArray()
-            .put(JSONObject().put("type", "text").put("text", message.content))
-            .put(
+        val content = JSONArray().put(JSONObject().put("type", "text").put("text", message.content))
+        images.forEach { image ->
+            content.put(
                 JSONObject()
                     .put("type", "image_url")
-                    .put(
-                        "image_url",
-                        JSONObject().put("url", "data:image/jpeg;base64,$image"),
-                    ),
+                    .put("image_url", JSONObject().put("url", "data:image/jpeg;base64,$image")),
             )
+        }
         payload.put("content", content)
     }
     return payload
