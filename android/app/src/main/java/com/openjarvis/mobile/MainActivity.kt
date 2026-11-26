@@ -5,8 +5,13 @@ import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.pm.ResolveInfo
+import android.graphics.BitmapFactory
+import android.media.projection.MediaProjectionManager
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.util.Base64
 import android.os.Handler
 import android.os.Looper
 import android.provider.AlarmClock
@@ -24,6 +29,7 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -62,6 +68,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
@@ -75,9 +82,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -107,6 +116,7 @@ private enum class Destination(val label: String, val symbol: String) {
     HOME("Home", "⌂"),
     CHAT("Chat", "◉"),
     MEMORY("Memory", "◇"),
+    LIVE("Live", "◉"),
     HUB("Hub", "✣"),
     SETTINGS("Settings", "⚙"),
 }
@@ -126,6 +136,26 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (LiveScreenCaptureState.isActive.value) {
+            startService(
+                Intent(this, LiveScreenCaptureService::class.java)
+                    .setAction(LiveScreenCaptureService.ACTION_PAUSE),
+            )
+        }
+    }
+
+    override fun onPause() {
+        if (LiveScreenCaptureState.isActive.value) {
+            startService(
+                Intent(this, LiveScreenCaptureService::class.java)
+                    .setAction(LiveScreenCaptureService.ACTION_RESUME),
+            )
+        }
+        super.onPause()
     }
 
     private fun extractSharedText(intent: Intent): String? {
@@ -189,6 +219,9 @@ private fun JarvisScreen(
     var wakeListening by remember { mutableStateOf(false) }
     var tts by remember { mutableStateOf<TextToSpeech?>(null) }
     var ttsReady by remember { mutableStateOf(false) }
+    var liveQuestion by remember { mutableStateOf("Explain what is on my screen and guide me through the next step.") }
+    val liveFrameBase64 by LiveScreenCaptureState.frameBase64.collectAsState()
+    val liveSharing by LiveScreenCaptureState.isActive.collectAsState()
 
     val speechInput = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult(),
@@ -199,14 +232,51 @@ private fun JarvisScreen(
                 ?.firstOrNull()
                 .orEmpty()
             if (spokenText.isNotBlank()) {
-                prompt = listOf(prompt.trim(), spokenText).filter(String::isNotBlank).joinToString(" ")
-                destination = Destination.CHAT
-                status = "Voice input is ready. Review it before sending."
+                val appTarget = extractOpenAppTarget(spokenText)
+                if (appTarget != null) {
+                    val resultMessage = launchInstalledApp(context, appTarget)
+                    messages.add(ChatMessage("user", spokenText))
+                    messages.add(ChatMessage("assistant", resultMessage))
+                    historyStore.save(messages.toList())
+                    prompt = ""
+                    destination = Destination.CHAT
+                    status = resultMessage
+                } else {
+                    prompt = listOf(prompt.trim(), spokenText).filter(String::isNotBlank).joinToString(" ")
+                    destination = Destination.CHAT
+                    status = "Voice input is ready. Review it before sending."
+                }
             } else {
                 status = "I couldn't catch that. Try once more."
             }
         } else {
             status = "Voice input cancelled."
+        }
+    }
+
+    val screenCaptureInput = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        val data = result.data
+        if (result.resultCode == android.app.Activity.RESULT_OK && data != null) {
+            try {
+                val serviceIntent = LiveScreenCaptureService.startIntent(context, result.resultCode, data)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    context.startForegroundService(serviceIntent)
+                } else {
+                    context.startService(serviceIntent)
+                }
+                context.startService(
+                    Intent(context, LiveScreenCaptureService::class.java)
+                        .setAction(LiveScreenCaptureService.ACTION_PAUSE),
+                )
+                destination = Destination.LIVE
+                status = "Screen sharing is active. Switch to an app, then return here to ask about it."
+            } catch (error: Exception) {
+                status = error.message ?: "Android couldn't start screen sharing."
+            }
+        } else {
+            status = "Screen sharing was cancelled. Nothing was captured."
         }
     }
 
@@ -290,6 +360,29 @@ private fun JarvisScreen(
         }
     }
 
+    fun requestScreenShare() {
+        if (liveSharing) {
+            status = "Screen sharing is already active."
+            destination = Destination.LIVE
+            return
+        }
+        try {
+            val manager = context.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+            screenCaptureInput.launch(manager.createScreenCaptureIntent())
+        } catch (error: Exception) {
+            status = error.message ?: "Android couldn't request screen sharing."
+        }
+    }
+
+    fun stopScreenShare() {
+        try {
+            context.startService(LiveScreenCaptureService.stopIntent(context))
+            status = "Screen sharing stopped."
+        } catch (error: Exception) {
+            status = error.message ?: "Couldn't stop screen sharing."
+        }
+    }
+
     DisposableEffect(context) {
         val engine = TextToSpeech(context.applicationContext) { result ->
             ttsReady = result == TextToSpeech.SUCCESS
@@ -301,6 +394,27 @@ private fun JarvisScreen(
             engine.shutdown()
             tts = null
             ttsReady = false
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        if (serverUrl.isNotBlank() && apiKey.isNotBlank()) {
+            status = "Restoring your saved AI connection…"
+            try {
+                val modelsFound = withContext(Dispatchers.IO) {
+                    api.checkConnection(serverUrl, apiKey)
+                }
+                if (modelsFound.isNotEmpty()) {
+                    availableModels = modelsFound
+                    if (model !in modelsFound) model = modelsFound.first()
+                    settingsStore.saveModel(model)
+                    connected = true
+                    status = "Saved AI connection restored · ${modelsFound.size} model(s) available."
+                }
+            } catch (_: Exception) {
+                connected = false
+                status = "Saved settings kept. Reconnect your AI server when it is available."
+            }
         }
     }
 
@@ -339,9 +453,23 @@ private fun JarvisScreen(
         }
     }
 
-    fun sendMessage() {
-        val question = prompt.trim()
+    fun sendMessage(screenFrame: String? = null, questionOverride: String? = null) {
+        val question = (questionOverride ?: prompt).trim()
         if (question.isBlank() || busy) return
+
+        if (screenFrame == null) {
+            val appTarget = extractOpenAppTarget(question)
+            if (appTarget != null) {
+                val resultMessage = launchInstalledApp(context, appTarget)
+                messages.add(ChatMessage("user", question))
+                messages.add(ChatMessage("assistant", resultMessage))
+                historyStore.save(messages.toList())
+                prompt = ""
+                status = resultMessage
+                return
+            }
+        }
+
         if (apiKey.isBlank() || serverUrl.isBlank() || model.isBlank()) {
             status = "Connect your AI server in Settings before chatting."
             destination = Destination.SETTINGS
@@ -361,7 +489,7 @@ private fun JarvisScreen(
             memorySaved = true
         }
 
-        messages.add(ChatMessage("user", question))
+        messages.add(ChatMessage("user", question, screenFrame))
         historyStore.save(messages.toList())
         prompt = ""
         assistantDraft = ""
@@ -370,7 +498,18 @@ private fun JarvisScreen(
             language = replyLanguage,
             memories = memories.toList(),
         )
-        val requestMessages = listOf(ChatMessage("system", systemContext)) + messages.takeLast(40)
+        val conversation = messages.takeLast(40)
+            .map { ChatMessage(it.role, it.content) }
+            .toMutableList()
+        if (!screenFrame.isNullOrBlank()) {
+            val currentQuestionIndex = conversation.indexOfLast {
+                it.role == "user" && it.content == question
+            }
+            if (currentQuestionIndex >= 0) {
+                conversation[currentQuestionIndex] = ChatMessage("user", question, screenFrame)
+            }
+        }
+        val requestMessages = listOf(ChatMessage("system", systemContext)) + conversation
         busy = true
         status = if (memorySaved) "Saved to Memory. Thinking…" else "Thinking with your personal context…"
         scope.launch {
@@ -501,6 +640,7 @@ private fun JarvisScreen(
                     onChat = { destination = Destination.CHAT },
                     onMemory = { destination = Destination.MEMORY },
                     onHub = { destination = Destination.HUB },
+                    onLive = { destination = Destination.LIVE },
                     onSettings = { destination = Destination.SETTINGS },
                     onStartListening = ::requestWakeWord,
                     onStopListening = {
@@ -548,6 +688,22 @@ private fun JarvisScreen(
                     onAdd = ::addMemory,
                     onRemove = ::removeMemory,
                 )
+                Destination.LIVE -> LiveScreen(
+                    isSharing = liveSharing,
+                    frameBase64 = liveFrameBase64,
+                    question = liveQuestion,
+                    onQuestionChange = { liveQuestion = it },
+                    onStartSharing = ::requestScreenShare,
+                    onStopSharing = ::stopScreenShare,
+                    onAskAboutScreen = { frame ->
+                        if (frame.isNullOrBlank()) {
+                            status = "No screen frame is ready yet. Keep sharing active for a moment."
+                        } else {
+                            destination = Destination.CHAT
+                            sendMessage(frame, liveQuestion)
+                        }
+                    },
+                )
                 Destination.HUB -> HubScreen(
                     context = context,
                     connected = connected,
@@ -555,18 +711,30 @@ private fun JarvisScreen(
                 )
                 Destination.SETTINGS -> SettingsScreen(
                     serverUrl = serverUrl,
-                    onServerUrlChange = { serverUrl = it },
+                    onServerUrlChange = {
+                        serverUrl = it
+                        keyStore.saveServerUrl(it)
+                    },
                     apiKey = apiKey,
-                    onApiKeyChange = { apiKey = it },
+                    onApiKeyChange = {
+                        apiKey = it
+                        if (it.isBlank()) keyStore.clear() else keyStore.saveApiKey(it)
+                    },
                     model = model,
                     onModelChange = { model = it; settingsStore.saveModel(it) },
                     availableModels = availableModels,
                     connected = connected,
                     busy = busy,
                     personality = personality,
-                    onPersonalityChange = { personality = it },
+                    onPersonalityChange = {
+                        personality = it
+                        settingsStore.saveProfile(it, replyLanguage)
+                    },
                     language = replyLanguage,
-                    onLanguageChange = { replyLanguage = it },
+                    onLanguageChange = {
+                        replyLanguage = it
+                        settingsStore.saveProfile(personality, it)
+                    },
                     onConnect = ::connectToServer,
                     onSaveProfile = {
                         settingsStore.saveProfile(personality, replyLanguage)
@@ -598,6 +766,7 @@ private fun HomeScreen(
     onChat: () -> Unit,
     onMemory: () -> Unit,
     onHub: () -> Unit,
+    onLive: () -> Unit,
     onSettings: () -> Unit,
     onStartListening: () -> Unit,
     onStopListening: () -> Unit,
@@ -698,6 +867,9 @@ private fun HomeScreen(
             QuickActionCard("⚙", "Companion setup", "Voice, model and personality", Modifier.weight(1f), onSettings)
             QuickActionCard("◎", "New conversation", "Think something through", Modifier.weight(1f), onChat)
         }
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            QuickActionCard("◉", "Live screen", "Share screen with Jarvis", Modifier.weight(1f), onLive)
+        }
 
         if (model.isNotBlank()) {
             Text("ACTIVE MODEL  ·  " + model, color = Muted, style = MaterialTheme.typography.labelSmall)
@@ -752,6 +924,126 @@ private fun JarvisOrb(active: Boolean) {
             )
         }
         Text("J", color = Void, style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Black)
+    }
+}
+
+@Composable
+private fun LiveScreen(
+    isSharing: Boolean,
+    frameBase64: String?,
+    question: String,
+    onQuestionChange: (String) -> Unit,
+    onStartSharing: () -> Unit,
+    onStopSharing: () -> Unit,
+    onAskAboutScreen: (String?) -> Unit,
+) {
+    val frameBitmap = remember(frameBase64) {
+        try {
+            val encoded = frameBase64 ?: return@remember null
+            val bytes = Base64.decode(encoded, Base64.NO_WRAP)
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Jarvis Live", color = White, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                Text("Live visual companion", color = Muted, style = MaterialTheme.typography.bodySmall)
+            }
+            StatusPill(
+                if (isSharing) "SHARING" else "STANDBY",
+                if (isSharing) Green else Amber,
+            )
+        }
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(22.dp),
+            colors = CardDefaults.cardColors(containerColor = Panel),
+        ) {
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(14.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                JarvisOrb(active = isSharing)
+                Text(
+                    if (isSharing) "JARVIS IS READY" else "START A LIVE SESSION",
+                    color = if (isSharing) Green else Cyan,
+                    fontWeight = FontWeight.Bold,
+                )
+                Text(
+                    if (isSharing) "Switch to the app you want help with. Return here to ask about its latest screen." else "Share one app window or your full display using Android's permission prompt.",
+                    color = Muted,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                if (isSharing) {
+                    OutlinedButton(onClick = onStopSharing) { Text("Stop sharing") }
+                } else {
+                    Button(
+                        onClick = onStartSharing,
+                        colors = ButtonDefaults.buttonColors(containerColor = Cyan, contentColor = Void),
+                    ) { Text("Share screen") }
+                }
+            }
+        }
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(18.dp),
+            colors = CardDefaults.cardColors(containerColor = PanelRaised),
+        ) {
+            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("SCREEN PREVIEW", color = Cyan, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                if (frameBitmap != null) {
+                    Image(
+                        bitmap = frameBitmap.asImageBitmap(),
+                        contentDescription = "Latest locally captured screen frame",
+                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)),
+                        contentScale = ContentScale.Fit,
+                    )
+                } else {
+                    Box(
+                        modifier = Modifier.fillMaxWidth().height(170.dp).clip(RoundedCornerShape(12.dp)).background(Panel),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            if (isSharing) "Waiting for the first screen frame…" else "Your shared screen will appear here.",
+                            color = Muted,
+                        )
+                    }
+                }
+            }
+        }
+        OutlinedTextField(
+            value = question,
+            onValueChange = onQuestionChange,
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text("Ask Jarvis about this screen") },
+            placeholder = { Text("Explain this page, find a button, or guide me…") },
+            minLines = 2,
+            maxLines = 4,
+        )
+        Button(
+            onClick = { onAskAboutScreen(frameBase64) },
+            enabled = isSharing && !frameBase64.isNullOrBlank() && question.isNotBlank(),
+            modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.buttonColors(containerColor = Blue, contentColor = White),
+        ) {
+            Text("Ask Jarvis about current screen")
+        }
+        Text(
+            "Privacy: frames are sampled locally for the preview. A frame is sent to your configured AI server only when you tap Ask. This requires a vision-capable model; the screen is not continuously uploaded.",
+            color = Muted,
+            style = MaterialTheme.typography.labelSmall,
+        )
     }
 }
 
@@ -887,6 +1179,9 @@ private fun MessageBubble(message: ChatMessage) {
         ) {
             Column(Modifier.padding(13.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(if (user) "YOU" else "JARVIS", color = if (user) Cyan else Blue, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                if (message.imageBase64 != null) {
+                    Text("SCREEN FRAME ATTACHED", color = Cyan, style = MaterialTheme.typography.labelSmall)
+                }
                 Text(message.content, color = White, style = MaterialTheme.typography.bodyMedium)
             }
         }
@@ -998,6 +1293,21 @@ private fun HubScreen(
     ) {
         Text("Tools & connections", color = White, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
         Text("Useful phone shortcuts today. Deeper integrations are added only when their permissions and data handling are ready.", color = Muted)
+        Text("APP LAUNCHER", color = Muted, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+        var appQuery by remember { mutableStateOf("") }
+        OutlinedTextField(
+            value = appQuery,
+            onValueChange = { appQuery = it },
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text("App name (e.g. GPay, WhatsApp)") },
+            singleLine = true,
+        )
+        Button(
+            onClick = { onStatus(launchInstalledApp(context, appQuery)) },
+            enabled = appQuery.isNotBlank(),
+            modifier = Modifier.fillMaxWidth(),
+        ) { Text("Open app") }
+
         Text("PHONE SHORTCUTS", color = Muted, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             ToolCard("▣", "Calendar", "Open phone calendar", Modifier.weight(1f)) {
@@ -1046,6 +1356,42 @@ private fun HubScreen(
             status = "SAFE SHORTCUTS ONLY",
             color = Muted,
         )
+    }
+}
+
+private fun launchInstalledApp(context: Context, requestedName: String): String {
+    val target = requestedName.trim()
+    if (target.isBlank()) return "Tell me which app to open."
+
+    return try {
+        val packageManager = context.packageManager
+        val launcherQuery = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+        val apps = packageManager.queryIntentActivities(launcherQuery, 0)
+            .mapNotNull { resolveInfo: ResolveInfo ->
+                val activity = resolveInfo.activityInfo ?: return@mapNotNull null
+                val label = resolveInfo.loadLabel(packageManager)?.toString().orEmpty()
+                if (label.isBlank()) null else Triple(label, activity.packageName, resolveInfo)
+            }
+            .distinctBy { it.second }
+        val matches = apps.filter { (label, packageName, _) ->
+            appLabelMatchesTarget(label, packageName, target)
+        }
+        val exact = matches.filter { normalizeAppSearchValue(it.first) == normalizeAppSearchValue(target) }
+        val candidate = when {
+            exact.size == 1 -> exact.first()
+            exact.size > 1 -> return "I found more than one app matching $target. Please use its full app name."
+            matches.size == 1 -> matches.first()
+            matches.isEmpty() -> return "I couldn't find an installed app named $target."
+            else -> return "I found multiple apps matching $target. Please say the full app name."
+        }
+        val launchIntent = packageManager.getLaunchIntentForPackage(candidate.second)
+            ?: return "Android doesn't provide a launcher screen for ${candidate.first}."
+        context.startActivity(launchIntent)
+        "Opening ${candidate.first}."
+    } catch (_: ActivityNotFoundException) {
+        "That app is installed, but Android couldn't open it."
+    } catch (error: Exception) {
+        error.message ?: "Android couldn't open $target."
     }
 }
 
