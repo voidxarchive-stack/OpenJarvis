@@ -808,7 +808,7 @@ private fun HomeScreen(
                     Text("JARVIS CORE", color = Cyan, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
                     StatusPill(if (connected) "AI CONNECTED" else "AI NOT CONNECTED", if (connected) Green else Amber)
                 }
-                JarvisOrb(active = wakeListening)
+                JarvisOrb(active = wakeListening || liveSharing)
                 Text(
                     when {
                         liveSharing -> "LIVE SCREEN SESSION ACTIVE"
@@ -843,7 +843,7 @@ private fun HomeScreen(
                     FilledTonalButton(onClick = onChat) { Text("Open chat") }
                 }
                 Text(
-                    "Wake-word preview runs only while the app is visible. It pauses when you leave this screen.",
+                    "Wake-word preview runs only while the app is in the foreground. It pauses when you switch to another app.",
                     color = Muted,
                     style = MaterialTheme.typography.labelSmall,
                 )
