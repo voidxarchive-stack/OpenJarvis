@@ -19,6 +19,7 @@ class AppCommandParserTest {
         assertEquals("Instagram", extractOpenAppTarget("Instagram kholna"))
         assertEquals("GPay", extractOpenAppTarget("GPay ko khol do"))
         assertEquals("GPay", extractOpenAppTarget("open GPay please"))
+        assertEquals("Instagram", extractOpenAppTarget("open Instagram"))
     }
 
     @Test
@@ -32,6 +33,10 @@ class AppCommandParserTest {
     fun appNamesMatchCommonAliasesWithoutMatchingUnrelatedApps() {
         assertTrue(appLabelMatchesTarget("Google Pay", "com.google.android.apps.nbu.paisa.user", "GPay"))
         assertTrue(appLabelMatchesTarget("WhatsApp", "com.whatsapp", "WhatsApp"))
+        assertTrue(appLabelMatchesTarget("Instagram", "com.instagram.android", "Instagram"))
+        assertTrue(appLabelMatchesTarget("PhonePe", "com.phonepe.app", "PhonePe"))
+        assertTrue(appLabelMatchesTarget("YouTube", "com.google.android.youtube", "YouTube"))
+        assertTrue(appLabelMatchesTarget("Paytm", "net.one97.paytm", "Paytm"))
         assertFalse(appLabelMatchesTarget("Google Maps", "com.google.android.apps.maps", "GPay"))
     }
 }
