@@ -49,6 +49,7 @@ class LiveScreenCaptureService : Service() {
     private var captureThread: HandlerThread? = null
     private var captureHandler: Handler? = null
     private var lastFrameAt = 0L
+    @Volatile private var capturePaused = false
 
     private val projectionCallback = object : MediaProjection.Callback() {
         override fun onStop() {
@@ -61,11 +62,21 @@ class LiveScreenCaptureService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == ACTION_STOP) {
-            releaseCapture(stopProjection = true)
-            stopForeground(STOP_FOREGROUND_REMOVE)
-            stopSelf()
-            return START_NOT_STICKY
+        when (intent?.action) {
+            ACTION_STOP -> {
+                releaseCapture(stopProjection = true)
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                stopSelf()
+                return START_NOT_STICKY
+            }
+            ACTION_PAUSE -> {
+                capturePaused = true
+                return START_NOT_STICKY
+            }
+            ACTION_RESUME -> {
+                capturePaused = false
+                return START_NOT_STICKY
+            }
         }
 
         val resultCode = intent?.getIntExtra(EXTRA_RESULT_CODE, 0) ?: 0
@@ -132,7 +143,7 @@ class LiveScreenCaptureService : Service() {
 
             try {
                 val now = SystemClock.elapsedRealtime()
-                if (now - lastFrameAt >= FRAME_INTERVAL_MS) {
+                if (!capturePaused && now - lastFrameAt >= FRAME_INTERVAL_MS) {
                     lastFrameAt = now
                     val plane = image.planes.firstOrNull() ?: return@setOnImageAvailableListener
                     val pixelStride = plane.pixelStride.coerceAtLeast(1)
@@ -255,6 +266,8 @@ class LiveScreenCaptureService : Service() {
 
     companion object {
         const val ACTION_STOP = "com.openjarvis.mobile.action.STOP_SCREEN_SHARE"
+        const val ACTION_PAUSE = "com.openjarvis.mobile.action.PAUSE_SCREEN_SHARE"
+        const val ACTION_RESUME = "com.openjarvis.mobile.action.RESUME_SCREEN_SHARE"
         const val EXTRA_RESULT_CODE = "screen_result_code"
         const val EXTRA_RESULT_DATA = "screen_result_data"
         private const val CHANNEL_ID = "jarvis_screen_share"
