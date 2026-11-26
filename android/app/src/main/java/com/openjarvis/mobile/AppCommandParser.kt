@@ -13,13 +13,14 @@ internal fun extractOpenAppTarget(input: String): String? {
         RegexOption.IGNORE_CASE,
     ).find(cleanedInput)
     val suffix = Regex(
-        """^\s*(.+?)\s+(?:app\s+)?(?:kholo|khol(?:\s+do)?|open\s+karo|chalao)\s*$""",
+        """^\s*(.+?)\s+(?:app\s+)?(?:kholo|kholna|khol(?:\s+do)?|open\s+karo|chalao)\s*$""",
         RegexOption.IGNORE_CASE,
     ).find(cleanedInput)
 
     val target = (prefix?.groupValues?.getOrNull(1) ?: suffix?.groupValues?.getOrNull(1))
         ?.trim()
-        ?.replace(Regex("""\s+app$""", RegexOption.IGNORE_CASE), "")
+        ?.trimEnd('.', ',', '!', '?')
+        ?.replace(Regex("""\s+(?:app|ko|please)$""", RegexOption.IGNORE_CASE), "")
         ?.trim()
         ?: return null
     if (target.isBlank() || target.equals("app", ignoreCase = true)) return null
