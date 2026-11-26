@@ -94,7 +94,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.openwakeword.OpenWakeWord
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -190,6 +190,7 @@ private fun JarvisScreen(
     initialSharedText: String,
 ) {
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     val api = remember { OpenJarvisApi() }
     val settingsStore = remember { CompanionSettingsStore(context) }
     val memoryStore = remember { PersonalMemoryStore(context) }
@@ -345,17 +346,16 @@ private fun JarvisScreen(
         }
     }
 
-    DisposableEffect(context) {
-        val owner = context as? LifecycleOwner
+    DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_STOP && wakeListening) {
                 stopWakeWord()
                 status = "Listening paused because Jarvis left the foreground."
             }
         }
-        owner?.lifecycle?.addObserver(observer)
+        lifecycleOwner.lifecycle.addObserver(observer)
         onDispose {
-            owner?.lifecycle?.removeObserver(observer)
+            lifecycleOwner.lifecycle.removeObserver(observer)
             stopWakeWord()
         }
     }
@@ -1349,15 +1349,15 @@ private fun HubScreen(
         )
         IntegrationCard(
             title = "Screen & documents",
-            detail = "Text shared from another app can be sent into Chat. PDF, image and live screen understanding are not implemented yet.",
-            status = "TEXT SHARE READY",
+            detail = "Live screen sharing is available in the Live tab. PDF and image-file import are not implemented yet.",
+            status = "LIVE SCREEN READY",
             color = Cyan,
         )
         IntegrationCard(
             title = "Phone automation",
-            detail = "This build offers explicit app shortcuts only. Accessibility-based tapping and typing are not enabled.",
-            status = "SAFE SHORTCUTS ONLY",
-            color = Muted,
+            detail = "Voice and Hub commands can open installed apps. Tapping controls or typing into other apps still needs a permission-reviewed Accessibility feature.",
+            status = "APP LAUNCH READY",
+            color = Green,
         )
     }
 }
