@@ -1,24 +1,46 @@
-# OpenJarvis Android companion
+# Jarvis Android companion
 
-The Android client is a native Kotlin + Jetpack Compose application.
+A native Kotlin + Jetpack Compose Android companion built around voice, personal context, visual help and user-controlled phone actions.
 
-## Current scope
+## App areas
 
-- Connects to an existing OpenJarvis API server over HTTPS.
-- Authenticates requests with `Authorization: Bearer <key>`.
-- Discovers available models through `GET /v1/models`.
-- Streams assistant replies from `POST /v1/chat/completions` using
-  OpenAI-compatible Server-Sent Events.
-- Sends prior user/assistant messages as conversation context.
-- Saves the latest 40 messages in app-private local storage.
-- Encrypts the server API key with an AES-GCM key held by Android Keystore.
-- Offers voice dictation through Android's system speech-recognition activity.
-  Recognized text is inserted into the compose box for review before sending.
-- Offers Android TextToSpeech playback, including an opt-in automatic
-  speak-replies toggle.
-- Adds opt-in, foreground-only offline wake-word detection for **"Hey Jarvis"**
-  using the open-source openWakeWord Android runtime. The user explicitly
-  grants microphone permission and starts/stops listening.
+- **Home**: Jarvis core, wake-word controls, activity metrics and shortcuts.
+- **Chat**: streaming OpenAI-compatible chat, local message history, speech dictation, spoken replies and local app-launch commands.
+- **Live**: a dedicated Jarvis Live screen with Android MediaProjection screen sharing, a local preview and a one-shot “Ask Jarvis about current screen” action.
+- **Memory**: user-controlled local notes. Add or remove memories here, or start a chat with `Remember that …`; notes are supplied as future chat context.
+- **Hub**: installed-app launcher, Calendar, alarms, Maps and browser shortcuts, plus integration status.
+- **Settings**: persistent HTTPS endpoint, encrypted API key, model, reply language and companion personality.
+
+The default personality is friendly, lightly humorous and intellectually honest. Jarvis is instructed to teach step by step, explain uncertainty and respectfully correct mistakes instead of automatically agreeing.
+
+## Voice and app launching
+
+- Tap **Activate voice** or start the opt-in offline **Hey Jarvis** listener, then speak.
+- Explicit commands such as “open GPay”, “launch WhatsApp”, “GPay kholo” and “Google Pay open karo” are resolved locally against installed launcher apps.
+- The app launcher works for installed apps that expose a launcher activity and are visible to Android's package-visibility query.
+- App launching only opens the selected application. It does not tap buttons, send messages, initiate transfers or perform transactions inside that app.
+- Android's speech recognizer is used for capture; the transcript is reviewed before ordinary chat messages are sent.
+- Android TextToSpeech reads responses aloud; automatic speaking can be disabled.
+
+Wake-word detection requires microphone permission and an explicit Start action. It remains foreground-only in this preview. The openWakeWord runtime is Apache-2.0; the bundled pretrained wake-word model is CC BY-NC-SA 4.0 and is therefore non-commercial. Replace it with a suitably licensed model before commercial distribution.
+
+## Live screen sharing
+
+- Tap **Share screen** and approve Android's system capture prompt each time.
+- Android may let the user share a single app window or the full display.
+- A foreground media-projection service keeps the user-approved session active and shows an ongoing notification.
+- Jarvis samples a downscaled frame locally for the Live preview. It pauses capture while the Jarvis activity is visible to avoid showing a recursive preview.
+- A frame is sent to the configured AI endpoint only when the user taps **Ask Jarvis about current screen**.
+- The selected endpoint/model must support OpenAI-compatible `image_url` message content. Text-only models or servers may reject vision requests; the app reports the server error.
+- This is a visual screen-context preview, not yet Gemini-style continuous two-way live voice/video streaming. Screen content is not continuously uploaded.
+
+## Persistence and privacy
+
+- Server URL, selected model, personality, language and speak-replies preference are saved automatically as they change.
+- The API key remains encrypted with AES-GCM using a non-exportable Android Keystore key.
+- Chat history and personal memory remain in app-private SharedPreferences and are not separately encrypted in this preview. Do not store passwords, recovery codes or highly sensitive secrets.
+- The live frame is held in memory only and is not added to persistent chat history.
+- Screen capture requires explicit Android consent for every session. Stop sharing in Jarvis or use Android's system screen-sharing stop control to end it.
 
 ## Build and test
 
@@ -29,43 +51,16 @@ cd android
 gradle :app:testDebugUnitTest :app:assembleDebug
 ```
 
-GitHub Actions runs the same unit-test and debug-APK build tasks. The APK is
-produced at `android/app/build/outputs/apk/debug/app-debug.apk`.
+GitHub Actions runs the same unit-test and debug-APK build tasks. The APK is produced at `android/app/build/outputs/apk/debug/app-debug.apk`. For pull requests, the Android workflow runs `:app:testDebugUnitTest` before `:app:assembleDebug` and uploads the APK as the `openjarvis-android-debug` artifact. A green result applies to the exact PR revision shown by that workflow run.
 
-## Server requirements
+## Server connection
 
-Run OpenJarvis with the server extra and configure an API key before exposing
-it beyond loopback. Use a trusted HTTPS endpoint. The app rejects plain HTTP
-connections and does not place API keys in URLs.
+The app connects to an OpenAI-compatible OpenJarvis endpoint:
+- `GET /v1/models` discovers available model IDs.
+- `POST /v1/chat/completions` streams assistant replies using Server-Sent Events.
+- Requests use `Authorization: Bearer <key>`.
+- HTTPS is required; credentials are never placed in URLs.
 
-## Privacy and limitations
+## Still planned
 
-Chat history is stored in app-private SharedPreferences, is bounded to 40
-messages, and is not uploaded separately. It is not separately encrypted in
-this iteration. Clear it from the app when needed. The API key is encrypted
-using Android Keystore. Do not use this preview for highly sensitive
-conversations until encrypted history storage and a user-facing
-connection-management flow are implemented.
-
-Speech dictation opens the platform recognizer UI and requires the user to
-start the capture. Recognized text is not sent automatically; the user can
-review and edit it before pressing Send. Spoken output uses the device's
-installed text-to-speech engine and can be disabled with the auto-speak
-toggle. TTS is stopped and released when the screen is disposed.
-
-Wake-word detection uses the open-source openWakeWord Android runtime and its
-built-in **"Hey Jarvis"** model. Detection runs on-device without a Picovoice
-account, AccessKey, subscription, or cloud audio upload. The user must grant
-Android microphone permission and tap **Start listening**. Listening stops
-when the user taps Stop or the app leaves the foreground; no background
-microphone service or boot-time auto-start is enabled.
-
-The runtime code is Apache-2.0. The bundled pretrained wake-word models are
-CC BY-NC-SA 4.0, so this model is intended for non-commercial use. A future
-commercial distribution must replace it with a model whose license permits
-that use.
-
-Background microphone service, document/video capture, app launching, typing
-into other apps, Gmail/Calendar OAuth, and on-device model inference remain
-separate milestones with dedicated permission, privacy, lifecycle, and
-device testing.
+Gmail and Google Calendar OAuth, calendar event reading and proactive meeting alerts, PDF/image import from the Android share sheet, accessibility-based typing with user approval, built-in web research tools, background wake-word listening and local LLM inference are not implemented in this preview. They should be added as separate permission-reviewed milestones.
