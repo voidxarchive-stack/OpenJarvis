@@ -658,7 +658,7 @@ private fun JarvisScreen(
                     model = model,
                     speakReplies = speakReplies,
                     onSpeakChange = { speakReplies = it; settingsStore.saveSpeakReplies(it) },
-                    onSend = ::sendMessage,
+                    onSend = { sendMessage() },
                     onSpeakLatest = ::speakLatestReply,
                     onDictate = {
                         val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
@@ -713,11 +713,13 @@ private fun JarvisScreen(
                     serverUrl = serverUrl,
                     onServerUrlChange = {
                         serverUrl = it
+                        connected = false
                         keyStore.saveServerUrl(it)
                     },
                     apiKey = apiKey,
                     onApiKeyChange = {
                         apiKey = it
+                        connected = false
                         if (it.isBlank()) keyStore.clear() else keyStore.saveApiKey(it)
                     },
                     model = model,
@@ -1144,7 +1146,8 @@ private fun ChatScreen(
                     Spacer(Modifier.weight(1f))
                     Button(
                         onClick = onSend,
-                        enabled = !busy && prompt.isNotBlank() && connected,
+                        enabled = !busy && prompt.isNotBlank() &&
+                            (connected || extractOpenAppTarget(prompt) != null),
                         colors = ButtonDefaults.buttonColors(containerColor = Cyan, contentColor = Void),
                     ) {
                         Text(if (busy) "Working…" else "Send")
