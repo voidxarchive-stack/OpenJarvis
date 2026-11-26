@@ -799,6 +799,8 @@ private fun JarvisScreen(
                 )
                 Destination.CHAT -> ChatScreen(
                     messages = messages,
+                    conversations = conversations.toList(),
+                    activeConversationId = activeConversationId,
                     assistantDraft = assistantDraft,
                     prompt = prompt,
                     onPromptChange = { prompt = it },
@@ -823,12 +825,11 @@ private fun JarvisScreen(
                             status = "No speech-recognition app is installed."
                         }
                     },
-                    onClear = {
-                        messages.clear()
-                        historyStore.clear()
-                        tts?.stop()
-                        status = "Conversation history cleared from this device."
-                    },
+                    onNewConversation = ::startNewConversation,
+                    onSelectConversation = ::openConversation,
+                    onRenameConversation = ::renameConversation,
+                    onTogglePinConversation = ::toggleConversationPin,
+                    onDeleteConversation = ::deleteConversation,
                 )
                 Destination.MEMORY -> MemoryScreen(
                     memories = memories,
@@ -840,22 +841,44 @@ private fun JarvisScreen(
                 Destination.LIVE -> LiveScreen(
                     isSharing = liveSharing,
                     frameBase64 = liveFrameBase64,
+                    attachment = liveAttachment,
                     question = liveQuestion,
                     onQuestionChange = { liveQuestion = it },
                     onStartSharing = ::requestScreenShare,
                     onStopSharing = ::stopScreenShare,
-                    onAskAboutScreen = { frame ->
-                        if (frame.isNullOrBlank()) {
-                            status = "No screen frame is ready yet. Keep sharing active for a moment."
+                    onPickAttachment = {
+                        attachmentInput.launch(arrayOf("application/pdf", "image/*", "video/*", "text/plain"))
+                    },
+                    onRemoveAttachment = { liveAttachment = null },
+                    onAskAboutContent = { frame, attachment ->
+                        val images = attachment?.imageBase64.orEmpty()
+                        val attachmentText = attachment?.let { file ->
+                            buildString {
+                                append("Attached file: ${file.displayName} (${file.mimeType}).")
+                                if (file.note.isNotBlank()) append("\n${file.note}")
+                                file.extractedText?.takeIf(String::isNotBlank)?.let {
+                                    append("\n\nFile text:\n")
+                                    append(it)
+                                }
+                            }
+                        }
+                        if (frame.isNullOrBlank() && images.isEmpty() && attachmentText.isNullOrBlank()) {
+                            status = "Share an app/screen or attach a supported file first."
                         } else {
                             destination = Destination.CHAT
-                            sendMessage(frame, liveQuestion)
+                            sendMessage(
+                                screenFrame = frame,
+                                questionOverride = liveQuestion,
+                                attachmentImages = images,
+                                attachmentText = attachmentText,
+                            )
                         }
                     },
                 )
                 Destination.HUB -> HubScreen(
                     context = context,
                     connected = connected,
+                    appAccessStore = appAccessStore,
                     onStatus = { status = it },
                 )
                 Destination.SETTINGS -> SettingsScreen(
