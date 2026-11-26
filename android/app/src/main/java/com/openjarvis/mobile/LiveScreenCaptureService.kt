@@ -3,6 +3,7 @@ package com.openjarvis.mobile
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
@@ -253,11 +254,24 @@ class LiveScreenCaptureService : Service() {
             @Suppress("DEPRECATION")
             Notification.Builder(this)
         }
+        val stopPendingIntent = PendingIntent.getService(
+            this,
+            0,
+            stopIntent(this),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
         return builder
             .setSmallIcon(android.R.drawable.ic_menu_view)
             .setContentTitle("Jarvis is viewing your shared screen")
-            .setContentText("Open Jarvis and tap Stop sharing to end this session.")
+            .setContentText("Screen frames stay on-device until you choose Ask in Jarvis.")
             .setOngoing(true)
+            .addAction(
+                Notification.Action.Builder(
+                    android.R.drawable.ic_media_pause,
+                    "Stop sharing",
+                    stopPendingIntent,
+                ).build(),
+            )
             .build()
     }
 
