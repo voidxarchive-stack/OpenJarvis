@@ -1114,12 +1114,16 @@ private fun JarvisOrb(active: Boolean) {
 private fun LiveScreen(
     isSharing: Boolean,
     frameBase64: String?,
+    attachment: LiveAttachment?,
     question: String,
     onQuestionChange: (String) -> Unit,
     onStartSharing: () -> Unit,
     onStopSharing: () -> Unit,
-    onAskAboutScreen: (String?) -> Unit,
+    onPickAttachment: () -> Unit,
+    onRemoveAttachment: () -> Unit,
+    onAskAboutContent: (String?, LiveAttachment?) -> Unit,
 ) {
+    var plusMenuExpanded by remember { mutableStateOf(false) }
     val frameBitmap = remember(frameBase64) {
         try {
             val encoded = frameBase64 ?: return@remember null
@@ -1140,12 +1144,9 @@ private fun LiveScreen(
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(modifier = Modifier.weight(1f)) {
                 Text("Jarvis Live", color = White, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                Text("Live visual companion", color = Muted, style = MaterialTheme.typography.bodySmall)
+                Text("Your visual workspace", color = Muted, style = MaterialTheme.typography.bodySmall)
             }
-            StatusPill(
-                if (isSharing) "SHARING" else "STANDBY",
-                if (isSharing) Green else Amber,
-            )
+            StatusPill(if (isSharing) "SHARING" else "STANDBY", if (isSharing) Green else Amber)
         }
         Card(
             modifier = Modifier.fillMaxWidth(),
@@ -1164,7 +1165,8 @@ private fun LiveScreen(
                     fontWeight = FontWeight.Bold,
                 )
                 Text(
-                    if (isSharing) "Switch to the app you want help with. Return here to ask about its latest screen." else "Share one app window or your full display using Android's permission prompt.",
+                    if (isSharing) "Switch to the app you want help with, then return here to ask about its latest frame."
+                    else "Android will ask what to share. Choose a single app window when available, or share the full display.",
                     color = Muted,
                     style = MaterialTheme.typography.bodySmall,
                 )
@@ -1174,7 +1176,7 @@ private fun LiveScreen(
                     Button(
                         onClick = onStartSharing,
                         colors = ButtonDefaults.buttonColors(containerColor = Cyan, contentColor = Void),
-                    ) { Text("Share screen") }
+                    ) { Text("Share app or screen") }
                 }
             }
         }
@@ -1198,9 +1200,39 @@ private fun LiveScreen(
                         contentAlignment = Alignment.Center,
                     ) {
                         Text(
-                            if (isSharing) "Waiting for the first screen frame…" else "Your shared screen will appear here.",
+                            if (isSharing) "Waiting for the first screen frame…" else "Your selected app or screen will appear here.",
                             color = Muted,
                         )
+                    }
+                }
+            }
+        }
+        if (attachment != null) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.cardColors(containerColor = Panel),
+            ) {
+                Column(Modifier.padding(13.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("ATTACHED FILE", color = Cyan, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                            Text(attachment.displayName, color = White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(
+                                when {
+                                    attachment.mimeType == "application/pdf" -> "${attachment.imageBase64.size} PDF page image(s)"
+                                    attachment.mimeType.startsWith("video/") -> "${attachment.imageBase64.size} sampled video frame(s)"
+                                    attachment.mimeType.startsWith("image/") -> "Image ready"
+                                    else -> "Text extracted locally"
+                                },
+                                color = Muted,
+                                style = MaterialTheme.typography.labelSmall,
+                            )
+                        }
+                        TextButton(onClick = onRemoveAttachment) { Text("Remove") }
+                    }
+                    if (attachment.note.isNotBlank()) {
+                        Text(attachment.note, color = Muted, style = MaterialTheme.typography.labelSmall)
                     }
                 }
             }
@@ -1209,21 +1241,52 @@ private fun LiveScreen(
             value = question,
             onValueChange = onQuestionChange,
             modifier = Modifier.fillMaxWidth(),
-            label = { Text("Ask Jarvis about this screen") },
-            placeholder = { Text("Explain this page, find a button, or guide me…") },
+            label = { Text("Ask Jarvis about this content") },
+            placeholder = { Text("Explain the screen, PDF, image or video…") },
             minLines = 2,
             maxLines = 4,
         )
-        Button(
-            onClick = { onAskAboutScreen(frameBase64) },
-            enabled = isSharing && !frameBase64.isNullOrBlank() && question.isNotBlank(),
-            modifier = Modifier.fillMaxWidth(),
-            colors = ButtonDefaults.buttonColors(containerColor = Blue, contentColor = White),
-        ) {
-            Text("Ask Jarvis about current screen")
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box {
+                OutlinedButton(onClick = { plusMenuExpanded = true }) { Text("＋") }
+                DropdownMenu(
+                    expanded = plusMenuExpanded,
+                    onDismissRequest = { plusMenuExpanded = false },
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("Share an app or full screen") },
+                        onClick = {
+                            plusMenuExpanded = false
+                            onStartSharing()
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Add PDF, image, video or text file") },
+                        onClick = {
+                            plusMenuExpanded = false
+                            onPickAttachment()
+                        },
+                    )
+                }
+            }
+            Spacer(Modifier.width(10.dp))
+            Button(
+                onClick = { onAskAboutContent(if (isSharing) frameBase64 else null, attachment) },
+                enabled = question.isNotBlank() &&
+                    ((isSharing && !frameBase64.isNullOrBlank()) || attachment != null),
+                modifier = Modifier.weight(1f),
+                colors = ButtonDefaults.buttonColors(containerColor = Blue, contentColor = White),
+            ) {
+                Text("Ask Jarvis")
+            }
         }
         Text(
-            "Privacy: frames are sampled locally for the preview. A frame is sent to your configured AI server only when you tap Ask. This requires a vision-capable model; the screen is not continuously uploaded.",
+            "Privacy: Android displays its own sharing approval. Jarvis samples the selected app/window locally. Frames and file contents are sent to your configured AI server only after you tap Ask. You can stop screen sharing at any time.",
+            color = Muted,
+            style = MaterialTheme.typography.labelSmall,
+        )
+        Text(
+            "PDFs are rendered as up to 5 page images. Videos contribute up to 3 sampled frames; the full video and its audio are not uploaded. A vision-capable model is required for image-based content.",
             color = Muted,
             style = MaterialTheme.typography.labelSmall,
         )
@@ -1233,6 +1296,8 @@ private fun LiveScreen(
 @Composable
 private fun ChatScreen(
     messages: List<ChatMessage>,
+    conversations: List<SavedConversation>,
+    activeConversationId: String,
     assistantDraft: String,
     prompt: String,
     onPromptChange: (String) -> Unit,
@@ -1244,9 +1309,18 @@ private fun ChatScreen(
     onSend: () -> Unit,
     onSpeakLatest: () -> Unit,
     onDictate: () -> Unit,
-    onClear: () -> Unit,
+    onNewConversation: () -> Unit,
+    onSelectConversation: (String) -> Unit,
+    onRenameConversation: (String, String) -> Unit,
+    onTogglePinConversation: (String) -> Unit,
+    onDeleteConversation: (String) -> Unit,
 ) {
     val scroll = rememberScrollState()
+    var showHistory by remember { mutableStateOf(false) }
+    var renameTarget by remember { mutableStateOf<SavedConversation?>(null) }
+    var renameDraft by remember { mutableStateOf("") }
+    var deleteTarget by remember { mutableStateOf<SavedConversation?>(null) }
+
     LaunchedEffect(messages.size, assistantDraft) {
         scroll.animateScrollTo(scroll.maxValue)
     }
@@ -1258,14 +1332,27 @@ private fun ChatScreen(
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(modifier = Modifier.weight(1f)) {
-                Text("Your conversation", color = White, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                Text(
+                    conversations.firstOrNull { it.id == activeConversationId }?.title ?: "Your conversation",
+                    color = White,
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
                 Text(
                     if (connected) "Connected · " + model else "Connect your model in Settings",
                     color = if (connected) Green else Amber,
                     style = MaterialTheme.typography.labelSmall,
                 )
             }
-            OutlinedButton(onClick = onClear, enabled = !busy && messages.isNotEmpty()) { Text("Clear") }
+            OutlinedButton(onClick = { showHistory = true }) { Text("History") }
+            Spacer(Modifier.width(6.dp))
+            Button(
+                onClick = onNewConversation,
+                enabled = !busy,
+                colors = ButtonDefaults.buttonColors(containerColor = Cyan, contentColor = Void),
+            ) { Text("+ New") }
         }
         Column(
             modifier = Modifier
@@ -1278,8 +1365,8 @@ private fun ChatScreen(
                 Card(colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(22.dp)) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("Let's think together.", color = Cyan, style = MaterialTheme.typography.titleMedium)
-                        Text("Ask me to explain a concept, review an idea, plan your day or help you solve a problem.", color = Muted)
-                        Text("Tip: start a message with “Remember that…” when you want to save a detail to your Memory bank.", color = Muted, style = MaterialTheme.typography.bodySmall)
+                        Text("Each conversation is saved separately. Open History to return to older chats, rename them or pin important ones.", color = Muted)
+                        Text("Memory is separate: only short details you explicitly save there are reused as context.", color = Muted, style = MaterialTheme.typography.bodySmall)
                     }
                 }
                 listOf(
@@ -1341,6 +1428,129 @@ private fun ChatScreen(
                 }
             }
         }
+    }
+
+    if (showHistory) {
+        AlertDialog(
+            onDismissRequest = { showHistory = false },
+            title = { Text("Conversation history") },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth().height(420.dp).verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    conversations
+                        .sortedWith(compareByDescending<SavedConversation> { it.pinned }.thenByDescending { it.updatedAt })
+                        .forEach { conversation ->
+                            var menuExpanded by remember(conversation.id) { mutableStateOf(false) }
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(if (conversation.id == activeConversationId) PanelRaised else Panel)
+                                    .clickable {
+                                        showHistory = false
+                                        onSelectConversation(conversation.id)
+                                    }
+                                    .padding(start = 10.dp, end = 2.dp, top = 9.dp, bottom = 9.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(
+                                        (if (conversation.pinned) "📌 " else "") + conversation.title,
+                                        color = White,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = if (conversation.id == activeConversationId) FontWeight.Bold else FontWeight.Normal,
+                                    )
+                                    Text(
+                                        "${conversation.messages.size} messages · " +
+                                            android.text.format.DateUtils.getRelativeTimeSpanString(conversation.updatedAt),
+                                        color = Muted,
+                                        style = MaterialTheme.typography.labelSmall,
+                                    )
+                                }
+                                Box {
+                                    IconButton(onClick = { menuExpanded = true }) {
+                                        Text("⋮", color = White, style = MaterialTheme.typography.titleLarge)
+                                    }
+                                    DropdownMenu(
+                                        expanded = menuExpanded,
+                                        onDismissRequest = { menuExpanded = false },
+                                    ) {
+                                        DropdownMenuItem(
+                                            text = { Text(if (conversation.pinned) "Unpin chat" else "Pin chat") },
+                                            onClick = {
+                                                menuExpanded = false
+                                                onTogglePinConversation(conversation.id)
+                                            },
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text("Rename") },
+                                            onClick = {
+                                                menuExpanded = false
+                                                renameDraft = conversation.title
+                                                renameTarget = conversation
+                                            },
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
+                                            onClick = {
+                                                menuExpanded = false
+                                                deleteTarget = conversation
+                                            },
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showHistory = false }) { Text("Done") }
+            },
+        )
+    }
+
+    renameTarget?.let { target ->
+        AlertDialog(
+            onDismissRequest = { renameTarget = null },
+            title = { Text("Rename conversation") },
+            text = {
+                OutlinedTextField(
+                    value = renameDraft,
+                    onValueChange = { renameDraft = it.take(60) },
+                    singleLine = true,
+                    label = { Text("Conversation title") },
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        onRenameConversation(target.id, renameDraft)
+                        renameTarget = null
+                    },
+                    enabled = renameDraft.isNotBlank(),
+                ) { Text("Save") }
+            },
+            dismissButton = { TextButton(onClick = { renameTarget = null }) { Text("Cancel") } },
+        )
+    }
+
+    deleteTarget?.let { target ->
+        AlertDialog(
+            onDismissRequest = { deleteTarget = null },
+            title = { Text("Delete this conversation?") },
+            text = { Text("Only this saved chat will be deleted. Your other conversations and Memory notes will stay untouched.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    onDeleteConversation(target.id)
+                    deleteTarget = null
+                }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = { TextButton(onClick = { deleteTarget = null }) { Text("Cancel") } },
+        )
     }
 }
 
