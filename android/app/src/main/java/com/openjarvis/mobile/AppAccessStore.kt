@@ -32,8 +32,10 @@ internal class AppAccessStore(context: Context) {
     private fun defaultLevel(packageName: String, label: String): AppAccessLevel {
         val key = (packageName + " " + label).lowercase()
         val sensitiveMarkers = listOf(
-            "gmail", "google.android.apps.nbu.paisa", "phonepe", "paytm",
+            "gmail", "google.android.apps.nbu.paisa", "googlepay", "phonepe", "paytm",
             "bank", "banking", "upi", "wallet", "cred", "mobikwik", "amazonpay",
+            "bhim", "yono", "sbi", "icici", "hdfc", "kotak", "axisbank",
+            "imobile", "bobworld", "canara", "unionbank", "idfc", "federalbank",
         )
         return if (sensitiveMarkers.any(key::contains)) AppAccessLevel.DENY else AppAccessLevel.READ_ONLY
     }
