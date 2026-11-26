@@ -60,12 +60,12 @@ internal class ConversationStore(
         }
         return try {
             val array = JSONArray(raw)
-            (0 until array.length()).mapNotNull { index ->
+            (0 until array.length()).mapNotNull conversation@{ index ->
                 val item = array.optJSONObject(index) ?: return@mapNotNull null
-                val id = item.optString("id").takeIf(String::isNotBlank) ?: return@mapNotNull null
+                val id = item.optString("id").takeIf(String::isNotBlank) ?: return@conversation null
                 val messagesArray = item.optJSONArray("messages") ?: JSONArray()
-                val messages = (0 until messagesArray.length()).mapNotNull { messageIndex ->
-                    val message = messagesArray.optJSONObject(messageIndex) ?: return@mapNotNull null
+                val messages = (0 until messagesArray.length()).mapNotNull message@{ messageIndex ->
+                    val message = messagesArray.optJSONObject(messageIndex) ?: return@message null
                     val role = message.optString("role")
                     val content = message.optString("content")
                     if ((role == "user" || role == "assistant") && content.isNotBlank()) {
