@@ -1573,8 +1573,9 @@ private fun MessageBubble(message: ChatMessage) {
         ) {
             Column(Modifier.padding(13.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(if (user) "YOU" else "JARVIS", color = if (user) Cyan else Blue, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
-                if (message.imageBase64 != null) {
-                    Text("SCREEN FRAME ATTACHED", color = Cyan, style = MaterialTheme.typography.labelSmall)
+                if (message.imageBase64 != null || message.imageBase64List.isNotEmpty()) {
+                    val count = (if (message.imageBase64 != null) 1 else 0) + message.imageBase64List.size
+                    Text("$count VISUAL ATTACHMENT FRAME(S)", color = Cyan, style = MaterialTheme.typography.labelSmall)
                 }
                 Text(message.content, color = White, style = MaterialTheme.typography.bodyMedium)
             }
@@ -1617,6 +1618,13 @@ private fun MemoryScreen(
     ) {
         Text("Memory bank", color = White, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
         Text("Only keep details you choose to save. Jarvis receives these notes as context in future chats.", color = Muted)
+        Card(colors = CardDefaults.cardColors(containerColor = PanelRaised), shape = RoundedCornerShape(18.dp)) {
+            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("WHAT DOES ADD MEMORY DO?", color = Cyan, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                Text("Memory is a small set of notes you explicitly choose to keep, such as your preferred answer language, learning goals or explanation style. Jarvis can use these notes as context in future conversations.", color = White, style = MaterialTheme.typography.bodySmall)
+                Text("It is not a copy of your chats. Your conversations are saved separately in Chat > History. Memory does not read Gmail, Google Pay or other apps, and it does not automatically save every message. You can remove any note here.", color = Muted, style = MaterialTheme.typography.bodySmall)
+            }
+        }
         Card(colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(22.dp)) {
             Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("ADD A MEMORY", color = Cyan, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
@@ -1676,8 +1684,11 @@ private fun MemoryScreen(
 private fun HubScreen(
     context: Context,
     connected: Boolean,
+    appAccessStore: AppAccessStore,
     onStatus: (String) -> Unit,
 ) {
+    val installedApps = remember(context) { queryInstalledLauncherApps(context) }
+    var appSearch by remember { mutableStateOf("") }
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -1697,10 +1708,40 @@ private fun HubScreen(
             singleLine = true,
         )
         Button(
-            onClick = { onStatus(launchInstalledApp(context, appQuery)) },
+            onClick = { onStatus(launchInstalledApp(context, appQuery, appAccessStore)) },
             enabled = appQuery.isNotBlank(),
             modifier = Modifier.fillMaxWidth(),
         ) { Text("Open app") }
+
+        Text("APP ACCESS CONTROL", color = Muted, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+        Text(
+            "Choose how Jarvis may interact with each launchable app. Gmail and payment/banking apps start blocked. These are Jarvis settings, not Android system permissions.",
+            color = Muted,
+            style = MaterialTheme.typography.bodySmall,
+        )
+        OutlinedTextField(
+            value = appSearch,
+            onValueChange = { appSearch = it },
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text("Find an installed app") },
+            singleLine = true,
+        )
+        val matchingApps = installedApps.filter {
+            it.label.contains(appSearch, ignoreCase = true) ||
+                it.packageName.contains(appSearch, ignoreCase = true)
+        }
+        Text("${matchingApps.size} of ${installedApps.size} launchable apps", color = Muted, style = MaterialTheme.typography.labelSmall)
+        if (matchingApps.isEmpty()) {
+            Text("No matching launchable apps were found.", color = Muted, style = MaterialTheme.typography.bodySmall)
+        } else {
+            matchingApps.forEach { app ->
+                AppAccessRow(
+                    app = app,
+                    initialLevel = appAccessStore.get(app.packageName, app.label),
+                    onChange = { level -> appAccessStore.set(app.packageName, level) },
+                )
+            }
+        }
 
         Text("PHONE SHORTCUTS", color = Muted, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -1753,7 +1794,51 @@ private fun HubScreen(
     }
 }
 
-private fun launchInstalledApp(context: Context, requestedName: String): String {
+@Composable
+private fun AppAccessRow(
+    app: InstalledJarvisApp,
+    initialLevel: AppAccessLevel,
+    onChange: (AppAccessLevel) -> Unit,
+) {
+    var selected by remember(app.packageName) { mutableStateOf(initialLevel) }
+    androidx.compose.runtime.LaunchedEffect(initialLevel) { selected = initialLevel }
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = Panel),
+    ) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+            Text(app.label, color = White, fontWeight = FontWeight.SemiBold)
+            Text(app.packageName, color = Muted, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Row(
+                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(7.dp),
+            ) {
+                AppAccessLevel.values().forEach { level ->
+                    FilterChip(
+                        selected = selected == level,
+                        onClick = {
+                            selected = level
+                            onChange(level)
+                        },
+                        label = { Text(level.label) },
+                    )
+                }
+            }
+            Text(
+                when (selected) {
+                    AppAccessLevel.ALLOW_ALL -> "Jarvis may use currently supported actions. Any future in-app control still requires a separate reviewed feature and Android approval."
+                    AppAccessLevel.READ_ONLY -> "Jarvis may open this app and use only content you explicitly share through Android."
+                    AppAccessLevel.DENY -> "Blocked: Jarvis voice and app-launch commands cannot open this app."
+                },
+                color = if (selected == AppAccessLevel.DENY) Amber else Muted,
+                style = MaterialTheme.typography.labelSmall,
+            )
+        }
+    }
+}
+
+private fun launchInstalledApp(context: Context, requestedName: String, appAccessStore: AppAccessStore): String {
     val target = requestedName.trim()
     if (target.isBlank()) return "Tell me which app to open."
 
@@ -1777,6 +1862,10 @@ private fun launchInstalledApp(context: Context, requestedName: String): String 
             matches.size == 1 -> matches.first()
             matches.isEmpty() -> return "I couldn't find an installed app named $target."
             else -> return "I found multiple apps matching $target. Please say the full app name."
+        }
+        val access = appAccessStore.get(candidate.second, candidate.first)
+        if (access == AppAccessLevel.DENY) {
+            return "Access to ${candidate.first} is denied in Hub > App access control. You can change it there whenever you choose."
         }
         val launchIntent = packageManager.getLaunchIntentForPackage(candidate.second)
             ?: return "Android doesn't provide a launcher screen for ${candidate.first}."
@@ -1900,6 +1989,18 @@ private fun SettingsScreen(
                     modifier = Modifier.fillMaxWidth(),
                     colors = ButtonDefaults.buttonColors(containerColor = Blue, contentColor = White),
                 ) { Text("Save companion profile") }
+            }
+        }
+        Card(colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(22.dp)) {
+            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("ABOUT JARVIS", color = Cyan, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                Text("Your personal, voice-first AI companion", color = White, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Text("Jarvis is designed to help you think, learn and use your phone through a friendly voice-and-chat experience. It connects to the OpenAI-compatible AI server you configure; your API key is protected with Android Keystore.", color = Muted, style = MaterialTheme.typography.bodySmall)
+                Text("Available in this preview", color = White, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodySmall)
+                Text("• Separate saved conversations with pin, rename and delete controls\n• User-managed Memory notes kept separately from chat history\n• Foreground-only Hey Jarvis wake phrase, speech input and spoken replies\n• Local app launching controlled by your per-app access choices\n• User-approved single-app/full-screen sharing and PDF, image, video-frame or text attachments in Live", color = Muted, style = MaterialTheme.typography.bodySmall)
+                Text("Not connected yet", color = White, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodySmall)
+                Text("Gmail and Google Calendar OAuth, proactive meeting alerts, in-app tapping/typing, full video/audio understanding and background wake-word listening are not enabled in this build.", color = Muted, style = MaterialTheme.typography.bodySmall)
+                Text("Security: Jarvis never gets payment access from the app list. Screen capture uses Android's own consent flow; attached content is sent only after you tap Ask.", color = Green, style = MaterialTheme.typography.bodySmall)
             }
         }
         Text("Voice input uses Android's speech recognizer. Spoken replies use the phone's installed text-to-speech voice. A dedicated ElevenLabs voice integration is not part of this build.", color = Muted, style = MaterialTheme.typography.labelSmall)
@@ -2081,7 +2182,7 @@ private class CompanionSettingsStore(context: Context) {
         "Be friendly, humorous and intellectually honest. Act like a supportive partner and teacher. Correct me respectfully when I am wrong; do not agree just to please me.",
     ).orEmpty()
 
-    fun loadLanguage(): String = preferences.getString(KEY_LANGUAGE, "Auto").orEmpty()
+    fun loadLanguage(): String = preferences.getString(KEY_LANGUAGE, "English").orEmpty()
     fun loadSpeakReplies(): Boolean = preferences.getBoolean(KEY_SPEAK, true)
     fun loadModel(): String = preferences.getString(KEY_MODEL, "").orEmpty()
 
