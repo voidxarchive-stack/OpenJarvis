@@ -238,6 +238,7 @@ private fun JarvisScreen(
     var connected by remember { mutableStateOf(false) }
     var wakeDetector by remember { mutableStateOf<OpenWakeWord?>(null) }
     var wakeListening by remember { mutableStateOf(false) }
+    var routeWakeSpeechToLive by remember { mutableStateOf(false) }
     var tts by remember { mutableStateOf<TextToSpeech?>(null) }
     var ttsReady by remember { mutableStateOf(false) }
     var liveQuestion by remember { mutableStateOf("Explain what is on my screen and guide me through the next step.") }
@@ -345,6 +346,8 @@ private fun JarvisScreen(
                 ?.firstOrNull()
                 .orEmpty()
             if (spokenText.isNotBlank()) {
+                val wakeAskedForLive = routeWakeSpeechToLive
+                routeWakeSpeechToLive = false
                 if (isLiveCommand(spokenText)) {
                     destination = Destination.LIVE
                     status = "Live workspace opened. Use + to share an app, screen or file."
@@ -358,6 +361,10 @@ private fun JarvisScreen(
                         prompt = ""
                         destination = Destination.CHAT
                         status = resultMessage
+                    } else if (wakeAskedForLive) {
+                        liveQuestion = spokenText
+                        destination = Destination.LIVE
+                        status = "Your question is ready in Jarvis Live. Choose what to share, then tap Ask."
                     } else {
                         prompt = listOf(prompt.trim(), spokenText).filter(String::isNotBlank).joinToString(" ")
                         destination = Destination.CHAT
@@ -365,9 +372,11 @@ private fun JarvisScreen(
                     }
                 }
             } else {
+                routeWakeSpeechToLive = false
                 status = "I couldn't catch that. Try once more."
             }
         } else {
+            routeWakeSpeechToLive = false
             status = "Voice input cancelled."
         }
     }
@@ -443,6 +452,7 @@ private fun JarvisScreen(
                 Handler(Looper.getMainLooper()).post {
                     status = "Hey Jarvis detected (" + (score * 100).toInt() + "%)."
                     destination = Destination.LIVE
+                    routeWakeSpeechToLive = true
                     stopWakeWord()
                     val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                         putExtra(
