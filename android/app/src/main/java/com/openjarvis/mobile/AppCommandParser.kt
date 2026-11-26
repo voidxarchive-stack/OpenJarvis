@@ -63,6 +63,6 @@ internal fun isLiveCommand(input: String): Boolean {
         .trim()
     return normalized in setOf(
         "live", "go live", "open live", "show live", "start live",
-        "live mode", "open jarvis live", "show me live",
+        "live mode", "open jarvis live", "show jarvis live", "show me live",
     )
 }
