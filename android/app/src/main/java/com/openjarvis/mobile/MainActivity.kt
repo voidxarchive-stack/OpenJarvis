@@ -342,19 +342,24 @@ private fun JarvisScreen(
                 ?.firstOrNull()
                 .orEmpty()
             if (spokenText.isNotBlank()) {
-                val appTarget = extractOpenAppTarget(spokenText)
-                if (appTarget != null) {
-                    val resultMessage = launchInstalledApp(context, appTarget)
-                    messages.add(ChatMessage("user", spokenText))
-                    messages.add(ChatMessage("assistant", resultMessage))
-                    historyStore.save(messages.toList())
-                    prompt = ""
-                    destination = Destination.CHAT
-                    status = resultMessage
+                if (isLiveCommand(spokenText)) {
+                    destination = Destination.LIVE
+                    status = "Live workspace opened. Use + to share an app, screen or file."
                 } else {
-                    prompt = listOf(prompt.trim(), spokenText).filter(String::isNotBlank).joinToString(" ")
-                    destination = Destination.CHAT
-                    status = "Voice input is ready. Review it before sending."
+                    val appTarget = extractOpenAppTarget(spokenText)
+                    if (appTarget != null) {
+                        val resultMessage = launchInstalledApp(context, appTarget, appAccessStore)
+                        messages.add(ChatMessage("user", spokenText))
+                        messages.add(ChatMessage("assistant", resultMessage))
+                        persistCurrentConversation()
+                        prompt = ""
+                        destination = Destination.CHAT
+                        status = resultMessage
+                    } else {
+                        prompt = listOf(prompt.trim(), spokenText).filter(String::isNotBlank).joinToString(" ")
+                        destination = Destination.CHAT
+                        status = "Voice input is ready. Review it before sending."
+                    }
                 }
             } else {
                 status = "I couldn't catch that. Try once more."
@@ -434,6 +439,7 @@ private fun JarvisScreen(
             detector.start { score ->
                 Handler(Looper.getMainLooper()).post {
                     status = "Hey Jarvis detected (" + (score * 100).toInt() + "%)."
+                    destination = Destination.LIVE
                     stopWakeWord()
                     val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                         putExtra(
@@ -582,17 +588,22 @@ private fun JarvisScreen(
         }
     }
 
-    fun sendMessage(screenFrame: String? = null, questionOverride: String? = null) {
+    fun sendMessage(
+        screenFrame: String? = null,
+        questionOverride: String? = null,
+        attachmentImages: List<String> = emptyList(),
+        attachmentText: String? = null,
+    ) {
         val question = (questionOverride ?: prompt).trim()
         if (question.isBlank() || busy) return
 
-        if (screenFrame == null) {
+        if (screenFrame == null && attachmentImages.isEmpty() && attachmentText.isNullOrBlank()) {
             val appTarget = extractOpenAppTarget(question)
             if (appTarget != null) {
-                val resultMessage = launchInstalledApp(context, appTarget)
+                val resultMessage = launchInstalledApp(context, appTarget, appAccessStore)
                 messages.add(ChatMessage("user", question))
                 messages.add(ChatMessage("assistant", resultMessage))
-                historyStore.save(messages.toList())
+                persistCurrentConversation()
                 prompt = ""
                 status = resultMessage
                 return
@@ -618,8 +629,11 @@ private fun JarvisScreen(
             memorySaved = true
         }
 
-        messages.add(ChatMessage("user", question, screenFrame))
-        historyStore.save(messages.toList())
+        val messageContent = if (attachmentText.isNullOrBlank()) question else {
+            "$question\n\n$attachmentText"
+        }
+        messages.add(ChatMessage("user", messageContent, screenFrame, attachmentImages))
+        persistCurrentConversation()
         prompt = ""
         assistantDraft = ""
         val systemContext = buildCompanionSystemPrompt(
@@ -628,14 +642,19 @@ private fun JarvisScreen(
             memories = memories.toList(),
         )
         val conversation = messages.takeLast(40)
-            .map { ChatMessage(it.role, it.content) }
+            .map { ChatMessage(it.role, it.content, it.imageBase64, it.imageBase64List) }
             .toMutableList()
-        if (!screenFrame.isNullOrBlank()) {
+        if (!screenFrame.isNullOrBlank() || attachmentImages.isNotEmpty()) {
             val currentQuestionIndex = conversation.indexOfLast {
-                it.role == "user" && it.content == question
+                it.role == "user" && it.content == messageContent
             }
             if (currentQuestionIndex >= 0) {
-                conversation[currentQuestionIndex] = ChatMessage("user", question, screenFrame)
+                conversation[currentQuestionIndex] = ChatMessage(
+                    "user",
+                    messageContent,
+                    screenFrame,
+                    attachmentImages,
+                )
             }
         }
         val requestMessages = listOf(ChatMessage("system", systemContext)) + conversation
@@ -652,7 +671,7 @@ private fun JarvisScreen(
                     assistantDraft += delta
                 }
                 messages.add(ChatMessage("assistant", response))
-                historyStore.save(messages.toList())
+                persistCurrentConversation()
                 assistantDraft = ""
                 status = if (memorySaved) {
                     "Reply complete · I saved that detail to Memory."
