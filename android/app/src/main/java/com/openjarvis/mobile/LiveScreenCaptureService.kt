@@ -119,6 +119,8 @@ class LiveScreenCaptureService : Service() {
 
     private fun beginProjection(resultCode: Int, resultData: Intent) {
         releaseCapture(stopProjection = true)
+        capturePaused = false
+        lastFrameAt = 0L
         val manager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
         val metrics = resources.displayMetrics
         val width = metrics.widthPixels.coerceAtLeast(1)
