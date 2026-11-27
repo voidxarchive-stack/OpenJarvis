@@ -8,9 +8,15 @@ internal class ChatStreamParser {
         if (!line.startsWith("data:")) return null
         val payload = line.removePrefix("data:").trim()
         if (payload.isEmpty() || payload == "[DONE]") return null
-        val root = JSONObject(payload)
+        val root = try {
+            JSONObject(payload)
+        } catch (_: Exception) {
+            return null
+        }
         val choices = root.optJSONArray("choices") ?: return null
         val delta = choices.optJSONObject(0)?.optJSONObject("delta") ?: return null
-        return delta.optString("content").takeIf { it.isNotEmpty() }
+        val rawContent = delta.opt("content") ?: return null
+        if (rawContent === JSONObject.NULL) return null
+        return (rawContent as? String)?.takeIf { it.isNotEmpty() }
     }
 }
