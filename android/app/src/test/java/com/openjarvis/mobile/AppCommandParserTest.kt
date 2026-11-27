@@ -23,6 +23,14 @@ class AppCommandParserTest {
     }
 
     @Test
+    fun recognisesExplicitLiveWorkspaceCommands() {
+        assertTrue(isLiveCommand("live"))
+        assertTrue(isLiveCommand("open live"))
+        assertTrue(isLiveCommand("show Jarvis Live"))
+        assertFalse(isLiveCommand("tell me about live streaming"))
+    }
+
+    @Test
     fun doesNotTreatOrdinaryQuestionsAsAppCommands() {
         assertNull(extractOpenAppTarget("Can you explain how to open GPay?"))
         assertNull(extractOpenAppTarget("open"))

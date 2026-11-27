@@ -5,6 +5,8 @@ data class ChatMessage(
     val content: String,
     /** Base64 JPEG for one explicitly shared screen frame. Never persisted to chat history. */
     val imageBase64: String? = null,
+    /** Additional user-approved visual attachment frames; never persisted. */
+    val imageBase64List: List<String> = emptyList(),
 ) {
     init {
         require(role == "user" || role == "assistant" || role == "system") {

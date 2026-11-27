@@ -27,4 +27,16 @@ class ChatStreamParserTest {
             parser.contentFromLine("""data: {"choices":[{"delta":{"role":"assistant"}}]}"""),
         )
     }
+
+    @Test
+    fun ignoresNullContentInsteadOfRenderingLiteralNull() {
+        assertNull(
+            parser.contentFromLine("""data: {"choices":[{"delta":{"content":null}}]}"""),
+        )
+    }
+
+    @Test
+    fun ignoresMalformedFrames() {
+        assertNull(parser.contentFromLine("data: {broken"))
+    }
 }

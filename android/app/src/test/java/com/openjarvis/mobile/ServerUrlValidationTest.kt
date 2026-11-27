@@ -13,7 +13,7 @@ class ServerUrlValidationTest {
             api.validateServerUrl("http://192.168.1.10:8000")
         }
         assertEquals(
-            "Use an HTTPS server URL. Unencrypted HTTP connections are disabled.",
+            "Remote servers must use HTTPS. Plain HTTP is allowed only for this device's loopback address (127.0.0.1 or localhost).",
             error.message,
         )
     }
@@ -24,7 +24,7 @@ class ServerUrlValidationTest {
             api.validateServerUrl("https://user:secret@example.com")
         }
         assertEquals(
-            "Server URL must not contain credentials, query parameters, or fragments",
+            "Server URL must not contain credentials, query parameters, or fragments.",
             error.message,
         )
     }

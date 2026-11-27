@@ -15,6 +15,18 @@ class ChatMessagePayloadTest {
     }
 
     @Test
+    fun multipleSelectedFileFramesAreSerializedAsMultipleImages() {
+        val payload = chatMessageToJson(
+            ChatMessage("user", "Summarise this file", imageBase64List = listOf("YWJj", "ZGVm")),
+        )
+        val content = payload.getJSONArray("content")
+        assertEquals(3, content.length())
+        assertEquals("text", content.getJSONObject(0).getString("type"))
+        assertEquals("data:image/jpeg;base64,YWJj", content.getJSONObject(1).getJSONObject("image_url").getString("url"))
+        assertEquals("data:image/jpeg;base64,ZGVm", content.getJSONObject(2).getJSONObject("image_url").getString("url"))
+    }
+
+    @Test
     fun screenFrameUsesOpenAiCompatibleMultimodalContent() {
         val payload = chatMessageToJson(ChatMessage("user", "What is on this screen?", "YWJj"))
         val content = payload.getJSONArray("content")

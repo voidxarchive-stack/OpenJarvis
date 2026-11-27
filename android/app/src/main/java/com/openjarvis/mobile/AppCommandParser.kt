@@ -54,3 +54,15 @@ internal fun appLabelMatchesTarget(label: String, packageName: String, requested
             normalizedPackage.contains(alias)
     }
 }
+
+/** Detects an explicit request to open the dedicated Live workspace after the wake phrase. */
+internal fun isLiveCommand(input: String): Boolean {
+    val normalized = input.trim().lowercase(Locale.ROOT)
+        .replace(Regex("[^a-z0-9 ]"), " ")
+        .replace(Regex("\\s+"), " ")
+        .trim()
+    return normalized in setOf(
+        "live", "go live", "open live", "show live", "start live",
+        "live mode", "open jarvis live", "show jarvis live", "show me live",
+    )
+}
