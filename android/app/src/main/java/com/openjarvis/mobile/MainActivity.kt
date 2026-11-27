@@ -1255,6 +1255,9 @@ private fun JarvisOrb(active: Boolean) {
 @Composable
 private fun LiveScreen(
     isSharing: Boolean,
+    floatingPanelEnabled: Boolean,
+    onEnableFloatingPanel: () -> Unit,
+    onHideFloatingPanel: () -> Unit,
     frameBase64: String?,
     attachment: LiveAttachment?,
     conversationMessages: List<ChatMessage>,
@@ -1284,66 +1287,138 @@ private fun LiveScreen(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+            .padding(horizontal = 14.dp, vertical = 6.dp),
+        verticalArrangement = Arrangement.spacedBy(9.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(modifier = Modifier.weight(1f)) {
+            Column(Modifier.weight(1f)) {
                 Text("Jarvis Live", color = White, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                Text("Your visual workspace", color = Muted, style = MaterialTheme.typography.bodySmall)
+                Text("Voice and screen assistance", color = Muted, style = MaterialTheme.typography.bodySmall)
             }
-            StatusPill(if (isSharing) "SHARING" else "STANDBY", if (isSharing) Green else Amber)
+            StatusPill(
+                if (busy) "THINKING" else if (isSharing) "SCREEN ON" else "STANDBY",
+                if (busy) Amber else if (isSharing) Green else Muted,
+            )
         }
+
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(22.dp),
             colors = CardDefaults.cardColors(containerColor = Panel),
         ) {
             Column(
-                modifier = Modifier.fillMaxWidth().padding(14.dp),
+                modifier = Modifier.fillMaxWidth().padding(12.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(7.dp),
             ) {
                 JarvisOrb(active = isSharing || busy)
                 Text(
-                    if (busy) "JARVIS IS THINKING"
-                    else if (isSharing) "SCREEN SHARING IS ACTIVE"
-                    else "JARVIS LIVE IS READY",
-                    color = if (busy || isSharing) Green else Cyan,
+                    when {
+                        busy -> "JARVIS IS THINKING"
+                        isSharing && frameBitmap != null -> "SCREEN SHARE ACTIVE · FRAME CAPTURED"
+                        isSharing -> "SCREEN SHARE ACTIVE · WAITING FOR FRAME"
+                        else -> "NO SCREEN IS BEING SHARED"
+                    },
+                    color = if (busy || isSharing) Green else Amber,
+                    style = MaterialTheme.typography.labelLarge,
                     fontWeight = FontWeight.Bold,
                 )
                 Text(
-                    "Hello, I'm Jarvis. I'm here to help. Talk to me or share your screen.",
-                    color = White,
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-                Text(
                     when {
-                        busy -> "Working on your request…"
-                        isSharing -> "Your approved screen is ready. Ask a question below whenever you need help."
-                        else -> "You can start with a normal voice or text conversation, then share an app whenever visual help is needed."
+                        busy -> "Your request is being processed."
+                        isSharing -> "1. Switch to the app you want help with.  2. Return to Jarvis.  3. The latest frame will appear below."
+                        else -> "Tap Share app or screen. Android will ask you to choose what Jarvis may view. Nothing is captured before you approve."
                     },
-                    color = Muted,
+                    color = White,
                     style = MaterialTheme.typography.bodySmall,
                 )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (isSharing) {
+                        OutlinedButton(onClick = onStopSharing, modifier = Modifier.weight(1f)) {
+                            Text("Stop sharing")
+                        }
+                    } else {
+                        Button(
+                            onClick = onStartSharing,
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.buttonColors(containerColor = Cyan, contentColor = Void),
+                        ) { Text("Share app or screen") }
+                    }
+                }
                 if (isSharing) {
-                    OutlinedButton(onClick = onStopSharing) { Text("Stop sharing") }
-                } else {
-                    Button(
-                        onClick = onStartSharing,
-                        colors = ButtonDefaults.buttonColors(containerColor = Cyan, contentColor = Void),
-                    ) { Text("Share app or screen") }
+                    OutlinedButton(
+                        onClick = if (floatingPanelEnabled) onHideFloatingPanel else onEnableFloatingPanel,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(if (floatingPanelEnabled) "Disable floating Jarvis panel" else "Keep Jarvis visible over other apps")
+                    }
+                    if (floatingPanelEnabled) {
+                        Text(
+                            "Floating panel enabled. It appears when you switch to another app; tap Open Jarvis to return here.",
+                            color = Green,
+                            style = MaterialTheme.typography.labelSmall,
+                        )
+                    } else {
+                        Text(
+                            "Optional: grant “Display over other apps” to keep a small Jarvis panel visible while you use another app.",
+                            color = Muted,
+                            style = MaterialTheme.typography.labelSmall,
+                        )
+                    }
                 }
             }
         }
+
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(18.dp),
+            colors = CardDefaults.cardColors(containerColor = PanelRaised),
+        ) {
+            Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("SCREEN PREVIEW", color = Cyan, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.weight(1f))
+                    Text(
+                        if (frameBitmap != null) "Latest frame" else if (isSharing) "Waiting" else "Not shared",
+                        color = if (frameBitmap != null) Green else Muted,
+                        style = MaterialTheme.typography.labelSmall,
+                    )
+                }
+                if (frameBitmap != null) {
+                    Image(
+                        bitmap = frameBitmap.asImageBitmap(),
+                        contentDescription = "Latest captured frame from the user-approved screen share",
+                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)),
+                        contentScale = ContentScale.Fit,
+                    )
+                } else {
+                    Box(
+                        modifier = Modifier.fillMaxWidth().height(128.dp).clip(RoundedCornerShape(12.dp)).background(Panel),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            if (isSharing) "Switch to the selected app, then return here. Jarvis will show the latest captured frame."
+                            else "No preview yet. Start screen sharing to choose an app or display.",
+                            color = Muted,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                }
+            }
+        }
+
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(18.dp),
             colors = CardDefaults.cardColors(containerColor = Panel),
         ) {
-            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("LIVE CONVERSATION", color = Cyan, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                    Text("CONVERSATION", color = Cyan, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
                     Spacer(Modifier.weight(1f))
                     StatusPill(
                         if (busy) "THINKING" else if (conversationMessages.isEmpty()) "READY" else "ACTIVE",
@@ -1351,9 +1426,9 @@ private fun LiveScreen(
                     )
                 }
                 if (conversationMessages.isEmpty() && assistantDraft.isBlank()) {
-                    Text("Your conversation will appear here.", color = Muted, style = MaterialTheme.typography.bodySmall)
+                    Text("Your conversation will appear here. Tap Speak to dictate a question, or type below.", color = Muted, style = MaterialTheme.typography.bodySmall)
                 } else {
-                    conversationMessages.takeLast(6).forEach { MessageBubble(it) }
+                    conversationMessages.takeLast(5).forEach { MessageBubble(it) }
                 }
                 if (assistantDraft.isNotBlank()) MessageBubble(ChatMessage("assistant", assistantDraft))
                 if (busy && assistantDraft.isBlank()) {
@@ -1364,98 +1439,57 @@ private fun LiveScreen(
                 }
             }
         }
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(18.dp),
-            colors = CardDefaults.cardColors(containerColor = PanelRaised),
-        ) {
-            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("SCREEN PREVIEW", color = Cyan, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
-                if (frameBitmap != null) {
-                    Image(
-                        bitmap = frameBitmap.asImageBitmap(),
-                        contentDescription = "Latest locally captured screen frame",
-                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)),
-                        contentScale = ContentScale.Fit,
-                    )
-                } else {
-                    Box(
-                        modifier = Modifier.fillMaxWidth().height(170.dp).clip(RoundedCornerShape(12.dp)).background(Panel),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            if (isSharing) "Waiting for the first screen frame…" else "Your selected app or screen will appear here.",
-                            color = Muted,
-                        )
-                    }
-                }
-            }
-        }
+
         if (attachment != null) {
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(18.dp),
+                shape = RoundedCornerShape(16.dp),
                 colors = CardDefaults.cardColors(containerColor = Panel),
             ) {
-                Column(Modifier.padding(13.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text("ATTACHED FILE", color = Cyan, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
-                            Text(attachment.displayName, color = White, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text(
-                                when {
-                                    attachment.mimeType == "application/pdf" -> "${attachment.imageBase64.size} PDF page image(s)"
-                                    attachment.mimeType.startsWith("video/") -> "${attachment.imageBase64.size} sampled video frame(s)"
-                                    attachment.mimeType.startsWith("image/") -> "Image ready"
-                                    else -> "Text extracted locally"
-                                },
-                                color = Muted,
-                                style = MaterialTheme.typography.labelSmall,
-                            )
-                        }
-                        TextButton(onClick = onRemoveAttachment) { Text("Remove") }
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("ATTACHED FILE", color = Cyan, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                        Text(attachment.displayName, color = White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(attachment.note.ifBlank { attachment.mimeType }, color = Muted, style = MaterialTheme.typography.labelSmall)
                     }
-                    if (attachment.note.isNotBlank()) {
-                        Text(attachment.note, color = Muted, style = MaterialTheme.typography.labelSmall)
-                    }
+                    TextButton(onClick = onRemoveAttachment) { Text("Remove") }
                 }
             }
         }
+
         OutlinedTextField(
             value = question,
             onValueChange = onQuestionChange,
             modifier = Modifier.fillMaxWidth(),
-            label = { Text("Ask Jarvis about this content") },
-            placeholder = { Text("Explain the screen, PDF, image or video…") },
-            minLines = 2,
+            placeholder = { Text("Ask about the screen, or type a question…") },
+            minLines = 1,
             maxLines = 4,
         )
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            OutlinedButton(onClick = onTalk, enabled = !busy) { Text("Talk") }
-            Spacer(Modifier.width(6.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            OutlinedButton(onClick = onTalk, enabled = !busy) { Text("🎙 Speak") }
             Box {
-                OutlinedButton(onClick = { plusMenuExpanded = true }) { Text("＋") }
+                OutlinedButton(onClick = { plusMenuExpanded = true }, enabled = !busy) { Text("+") }
                 DropdownMenu(
                     expanded = plusMenuExpanded,
                     onDismissRequest = { plusMenuExpanded = false },
                 ) {
                     DropdownMenuItem(
                         text = { Text("Share an app or full screen") },
-                        onClick = {
-                            plusMenuExpanded = false
-                            onStartSharing()
-                        },
+                        onClick = { plusMenuExpanded = false; onStartSharing() },
                     )
                     DropdownMenuItem(
                         text = { Text("Add PDF, image, video or text file") },
-                        onClick = {
-                            plusMenuExpanded = false
-                            onPickAttachment()
-                        },
+                        onClick = { plusMenuExpanded = false; onPickAttachment() },
                     )
                 }
             }
-            Spacer(Modifier.width(10.dp))
             Button(
                 onClick = { onAskAboutContent(if (isSharing) frameBase64 else null, attachment) },
                 enabled = question.isNotBlank() && !busy,
@@ -1466,12 +1500,7 @@ private fun LiveScreen(
             }
         }
         Text(
-            "Your screen or attachment is sent to your configured AI server only when you tap Ask. Stop sharing whenever you choose.",
-            color = Muted,
-            style = MaterialTheme.typography.labelSmall,
-        )
-        Text(
-            "PDFs are rendered as up to 5 page images. Videos contribute up to 3 sampled frames; the full video and its audio are not uploaded. A vision-capable model is required for image-based content.",
+            "Your screen and files stay on this phone until you tap Ask. The AI model must support images to interpret a screen or PDF frame; a text-only model can answer text questions but cannot see the preview.",
             color = Muted,
             style = MaterialTheme.typography.labelSmall,
         )
@@ -1499,46 +1528,104 @@ private fun ChatScreen(
     onRenameConversation: (String, String) -> Unit,
     onTogglePinConversation: (String) -> Unit,
     onDeleteConversation: (String) -> Unit,
+    onOpenMemory: () -> Unit,
+    onOpenHub: () -> Unit,
+    onOpenLive: () -> Unit,
 ) {
     val scroll = rememberScrollState()
     var showHistory by remember { mutableStateOf(false) }
+    var showChatMenu by remember { mutableStateOf(false) }
+    var showPlusMenu by remember { mutableStateOf(false) }
     var renameTarget by remember { mutableStateOf<SavedConversation?>(null) }
     var renameDraft by remember { mutableStateOf("") }
     var deleteTarget by remember { mutableStateOf<SavedConversation?>(null) }
+    val activeConversation = conversations.firstOrNull { it.id == activeConversationId }
 
     LaunchedEffect(messages.size, assistantDraft) {
         scroll.animateScrollTo(scroll.maxValue)
     }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(modifier = Modifier.weight(1f)) {
+            Box {
+                IconButton(onClick = { showChatMenu = true }) {
+                    Text("☰", color = White, style = MaterialTheme.typography.titleLarge)
+                }
+                DropdownMenu(
+                    expanded = showChatMenu,
+                    onDismissRequest = { showChatMenu = false },
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("New chat") },
+                        onClick = { showChatMenu = false; onNewConversation() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Chat history") },
+                        onClick = { showChatMenu = false; showHistory = true },
+                    )
+                    DropdownMenuItem(
+                        text = { Text(if (activeConversation?.pinned == true) "Unpin this chat" else "Pin this chat") },
+                        enabled = activeConversation != null,
+                        onClick = {
+                            showChatMenu = false
+                            activeConversation?.let { onTogglePinConversation(it.id) }
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Rename this chat") },
+                        enabled = activeConversation != null,
+                        onClick = {
+                            showChatMenu = false
+                            activeConversation?.let {
+                                renameDraft = it.title
+                                renameTarget = it
+                            }
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Delete this chat", color = MaterialTheme.colorScheme.error) },
+                        enabled = activeConversation != null && !busy,
+                        onClick = {
+                            showChatMenu = false
+                            deleteTarget = activeConversation
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text(if (speakReplies) "Turn spoken replies off" else "Turn spoken replies on") },
+                        onClick = { showChatMenu = false; onSpeakChange(!speakReplies) },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Read the latest reply aloud") },
+                        enabled = messages.any { it.role == "assistant" } && !busy,
+                        onClick = { showChatMenu = false; onSpeakLatest() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Memory bank") },
+                        onClick = { showChatMenu = false; onOpenMemory() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Phone & tools") },
+                        onClick = { showChatMenu = false; onOpenHub() },
+                    )
+                }
+            }
+            Column(Modifier.weight(1f)) {
+                Text("J.A.R.V.I.S.", color = White, fontWeight = FontWeight.Bold)
                 Text(
-                    conversations.firstOrNull { it.id == activeConversationId }?.title ?: "Your conversation",
-                    color = White,
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
+                    activeConversation?.title ?: "New conversation",
+                    color = Muted,
+                    style = MaterialTheme.typography.labelSmall,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Text(
-                    if (connected) "Connected · " + model else "Connect your model in Settings",
-                    color = if (connected) Green else Amber,
-                    style = MaterialTheme.typography.labelSmall,
-                )
             }
-            OutlinedButton(onClick = { showHistory = true }) { Text("History") }
-            Spacer(Modifier.width(6.dp))
-            Button(
-                onClick = onNewConversation,
-                enabled = !busy,
-                colors = ButtonDefaults.buttonColors(containerColor = Cyan, contentColor = Void),
-            ) { Text("+ New") }
         }
+
         Column(
             modifier = Modifier
                 .weight(1f)
@@ -1547,69 +1634,87 @@ private fun ChatScreen(
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             if (messages.isEmpty() && assistantDraft.isEmpty()) {
-                Card(colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(22.dp)) {
-                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("Hello! I'm Jarvis.", color = Cyan, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-                        Text("What would you like to work on today?", color = White, style = MaterialTheme.typography.bodyLarge)
-                        Text("Ask anything, or try one of these.", color = Muted, style = MaterialTheme.typography.bodySmall)
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = Panel),
+                    shape = RoundedCornerShape(22.dp),
+                ) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("At your service.", color = Cyan, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                        Text("What shall we work on?", color = White, style = MaterialTheme.typography.bodyLarge)
+                        Text("I can help you learn, reason through a problem or plan your next step.", color = Muted, style = MaterialTheme.typography.bodySmall)
                     }
                 }
-                listOf(
-                    "Teach me a topic from zero, step by step.",
-                    "Challenge my current plan and point out weak assumptions.",
-                    "Help me organise what I need to do today.",
-                ).forEach { suggestion ->
-                    AssistPrompt(suggestion) { onPromptChange(suggestion) }
+                AssistPrompt("Teach me a topic from zero, step by step.") {
+                    onPromptChange("Teach me a topic from zero, step by step.")
+                }
+                AssistPrompt("Challenge my plan and identify weak assumptions.") {
+                    onPromptChange("Challenge my plan and identify weak assumptions.")
                 }
             }
-            messages.forEach { message ->
-                MessageBubble(message)
-            }
-            if (assistantDraft.isNotEmpty()) {
-                MessageBubble(ChatMessage("assistant", assistantDraft))
-            }
+            messages.forEach { message -> MessageBubble(message) }
+            if (assistantDraft.isNotEmpty()) MessageBubble(ChatMessage("assistant", assistantDraft))
             if (busy && assistantDraft.isEmpty()) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = Cyan)
-                    Text("Jarvis is thinking…", color = Muted, style = MaterialTheme.typography.bodySmall)
+                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = Cyan)
+                    Text("Preparing a response…", color = Muted, style = MaterialTheme.typography.bodySmall)
                 }
             }
         }
+
         Card(
-            shape = RoundedCornerShape(24.dp),
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(26.dp),
             colors = CardDefaults.cardColors(containerColor = PanelRaised),
         ) {
-            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(
+                modifier = Modifier.padding(horizontal = 6.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                Box {
+                    IconButton(onClick = { showPlusMenu = true }, enabled = !busy) {
+                        Text("+", color = Cyan, style = MaterialTheme.typography.headlineSmall)
+                    }
+                    DropdownMenu(
+                        expanded = showPlusMenu,
+                        onDismissRequest = { showPlusMenu = false },
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("New conversation") },
+                            onClick = { showPlusMenu = false; onNewConversation() },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Conversation history") },
+                            onClick = { showPlusMenu = false; showHistory = true },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Share a screen or file in Live") },
+                            onClick = { showPlusMenu = false; onOpenLive() },
+                        )
+                    }
+                }
                 OutlinedTextField(
                     value = prompt,
                     onValueChange = onPromptChange,
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("Message Jarvis") },
-                    placeholder = { Text("Tell me what's on your mind…") },
-                    minLines = 2,
-                    maxLines = 5,
+                    modifier = Modifier.weight(1f),
+                    placeholder = { Text("Message Jarvis…") },
+                    minLines = 1,
+                    maxLines = 6,
                     enabled = !busy,
                 )
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    OutlinedButton(onClick = onDictate, enabled = !busy) { Text("Mic") }
-                    Spacer(Modifier.width(8.dp))
-                    OutlinedButton(onClick = onSpeakLatest, enabled = !busy && messages.any { it.role == "assistant" }) {
-                        Text("Speak")
-                    }
-                    Spacer(Modifier.weight(1f))
-                    Button(
-                        onClick = onSend,
-                        enabled = !busy && prompt.isNotBlank() &&
-                            (connected || extractOpenAppTarget(prompt) != null),
-                        colors = ButtonDefaults.buttonColors(containerColor = Cyan, contentColor = Void),
-                    ) {
-                        Text(if (busy) "Working…" else "Send")
-                    }
+                IconButton(onClick = onDictate, enabled = !busy) {
+                    Text("🎙", style = MaterialTheme.typography.titleMedium)
                 }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Speak replies aloud", color = Muted, style = MaterialTheme.typography.bodySmall)
-                    Spacer(Modifier.weight(1f))
-                    Switch(checked = speakReplies, onCheckedChange = onSpeakChange)
+                Button(
+                    onClick = onSend,
+                    enabled = !busy && prompt.isNotBlank() &&
+                        (connected || extractOpenAppTarget(prompt) != null),
+                    modifier = Modifier.size(44.dp),
+                    shape = CircleShape,
+                    colors = ButtonDefaults.buttonColors(containerColor = Cyan, contentColor = Void),
+                ) {
+                    Text("↑", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                 }
             }
         }
@@ -1650,7 +1755,7 @@ private fun ChatScreen(
                                         fontWeight = if (conversation.id == activeConversationId) FontWeight.Bold else FontWeight.Normal,
                                     )
                                     Text(
-                                        "${conversation.messages.size} messages · " +
+                                        conversation.messages.size.toString() + " messages · " +
                                             android.text.format.DateUtils.getRelativeTimeSpanString(conversation.updatedAt),
                                         color = Muted,
                                         style = MaterialTheme.typography.labelSmall,
@@ -1692,9 +1797,7 @@ private fun ChatScreen(
                         }
                 }
             },
-            confirmButton = {
-                TextButton(onClick = { showHistory = false }) { Text("Done") }
-            },
+            confirmButton = { TextButton(onClick = { showHistory = false }) { Text("Done") } },
         )
     }
 
@@ -2311,6 +2414,12 @@ private fun StatusPill(label: String, color: Color) {
     }
 }
 
+private fun speechLocale(language: String): Locale = when (language) {
+    "English" -> Locale.US
+    "Hindi/Hinglish" -> Locale.forLanguageTag("hi-IN")
+    else -> Locale.getDefault()
+}
+
 private fun buildCompanionSystemPrompt(
     personality: String,
     language: String,
@@ -2330,7 +2439,7 @@ private fun buildCompanionSystemPrompt(
 You are Jarvis, the user's long-term personal companion and practical thinking partner, not a generic customer-support bot.
 Personality preference: $personality
 $languageRule
-Be friendly, warm, lightly humorous when natural, and intellectually honest. Do not flatter or agree automatically. Correct mistakes respectfully, explain uncertainty, and distinguish facts from guesses. Teach step by step when the user is learning. Remember the ongoing context provided below, but never claim to know something that is not in the context. Ask only the most useful clarification when genuinely needed.
+Adopt a composed, professional, capable JARVIS persona: calm, precise, courteous and quietly confident. Use polished natural language. Be lightly witty only when it genuinely fits; keep humour dry and restrained. Never use slang, excessive banter, or casual forms of address such as bro, bhai, buddy or mate. Do not prepend greetings like Hello or Hi to every reply. Do not repeat the user's name unnecessarily. Keep answers direct and useful, with enough detail to complete the task. Never output the literal strings null or undefined as conversational filler; omit missing values instead. Do not flatter or agree automatically. Correct mistakes respectfully, explain uncertainty, and distinguish facts from guesses. Teach step by step when the user is learning. Remember the ongoing context provided below, but never claim to know something that is not in the context. Ask only the most useful clarification when genuinely needed.
 Respect user autonomy. Never claim to have opened apps, sent messages, read accounts, changed settings, or completed actions unless a tool actually did it.
 User-approved personal memory notes:
 $memoryBlock
@@ -2387,7 +2496,7 @@ private class CompanionSettingsStore(context: Context) {
 
     fun loadPersonality(): String = preferences.getString(
         KEY_PERSONALITY,
-        "Be friendly, humorous and intellectually honest. Act like a supportive partner and teacher. Correct me respectfully when I am wrong; do not agree just to please me.",
+        "Be composed, professional, quietly witty and intellectually honest. Act like a capable personal partner and teacher. Be concise, never use slang or repeated greetings, and correct me respectfully when I am wrong.",
     ).orEmpty()
 
     fun loadLanguage(): String = preferences.getString(KEY_LANGUAGE, "English").orEmpty()
