@@ -833,52 +833,56 @@ private fun JarvisScreen(
     Scaffold(
         containerColor = Void,
         topBar = {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(Void)
-                    .padding(start = 18.dp, end = 18.dp, top = 12.dp, bottom = 10.dp),
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        modifier = Modifier
-                            .size(38.dp)
-                            .clip(CircleShape)
-                            .background(Brush.linearGradient(listOf(Cyan, Blue))),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text("J", color = Void, fontWeight = FontWeight.Black)
+            if (destination != Destination.CHAT) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Void)
+                        .padding(start = 18.dp, end = 18.dp, top = 12.dp, bottom = 10.dp),
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(38.dp)
+                                .clip(CircleShape)
+                                .background(Brush.linearGradient(listOf(Cyan, Blue))),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text("J", color = Void, fontWeight = FontWeight.Black)
+                        }
+                        Spacer(Modifier.width(10.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("J.A.R.V.I.S.", color = White, fontWeight = FontWeight.Bold)
+                            Text("PERSONAL COMPANION", color = Muted, style = MaterialTheme.typography.labelSmall)
+                        }
+                        StatusPill(
+                            label = if (liveSharing) "LIVE SHARING" else if (wakeListening) "LISTENING" else if (connected) "AI LINKED" else "STANDBY",
+                            color = if (liveSharing || wakeListening) Green else if (connected) Cyan else Muted,
+                        )
                     }
-                    Spacer(Modifier.width(10.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("J.A.R.V.I.S.", color = White, fontWeight = FontWeight.Bold)
-                        Text("PERSONAL COMPANION", color = Muted, style = MaterialTheme.typography.labelSmall)
-                    }
-                    StatusPill(
-                        label = if (liveSharing) "LIVE SHARING" else if (wakeListening) "LISTENING" else if (connected) "AI LINKED" else "STANDBY",
-                        color = if (liveSharing || wakeListening) Green else if (connected) Cyan else Muted,
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        status,
+                        color = Muted,
+                        style = MaterialTheme.typography.bodySmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    status,
-                    color = Muted,
-                    style = MaterialTheme.typography.bodySmall,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
             }
         },
         bottomBar = {
-            NavigationBar(containerColor = Color(0xFF09131F), contentColor = White) {
-                Destination.values().forEach { item ->
-                    NavigationBarItem(
-                        selected = destination == item,
-                        onClick = { destination = item },
-                        icon = { Text(item.symbol, style = MaterialTheme.typography.titleMedium) },
-                        label = { Text(item.label) },
-                        alwaysShowLabel = true,
-                    )
+            if (destination != Destination.CHAT) {
+                NavigationBar(containerColor = Color(0xFF09131F), contentColor = White) {
+                    Destination.values().forEach { item ->
+                        NavigationBarItem(
+                            selected = destination == item,
+                            onClick = { destination = item },
+                            icon = { Text(item.symbol, style = MaterialTheme.typography.titleMedium) },
+                            label = { Text(item.label) },
+                            alwaysShowLabel = true,
+                        )
+                    }
                 }
             }
         },
@@ -941,9 +945,11 @@ private fun JarvisScreen(
                     onRenameConversation = ::renameConversation,
                     onTogglePinConversation = ::toggleConversationPin,
                     onDeleteConversation = ::deleteConversation,
+                    onOpenHome = { destination = Destination.HOME },
                     onOpenMemory = { destination = Destination.MEMORY },
                     onOpenHub = { destination = Destination.HUB },
                     onOpenLive = { destination = Destination.LIVE },
+                    onOpenSettings = { destination = Destination.SETTINGS },
                 )
                 Destination.MEMORY -> MemoryScreen(
                     memories = memories,
@@ -1528,9 +1534,11 @@ private fun ChatScreen(
     onRenameConversation: (String, String) -> Unit,
     onTogglePinConversation: (String) -> Unit,
     onDeleteConversation: (String) -> Unit,
+    onOpenHome: () -> Unit,
     onOpenMemory: () -> Unit,
     onOpenHub: () -> Unit,
     onOpenLive: () -> Unit,
+    onOpenSettings: () -> Unit,
 ) {
     val scroll = rememberScrollState()
     var showHistory by remember { mutableStateOf(false) }
@@ -1605,12 +1613,20 @@ private fun ChatScreen(
                         onClick = { showChatMenu = false; onSpeakLatest() },
                     )
                     DropdownMenuItem(
+                        text = { Text("Home") },
+                        onClick = { showChatMenu = false; onOpenHome() },
+                    )
+                    DropdownMenuItem(
                         text = { Text("Memory bank") },
                         onClick = { showChatMenu = false; onOpenMemory() },
                     )
                     DropdownMenuItem(
                         text = { Text("Phone & tools") },
                         onClick = { showChatMenu = false; onOpenHub() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Settings") },
+                        onClick = { showChatMenu = false; onOpenSettings() },
                     )
                 }
             }
