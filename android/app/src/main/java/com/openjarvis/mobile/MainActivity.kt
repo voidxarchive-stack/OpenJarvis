@@ -16,6 +16,7 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.AlarmClock
 import android.provider.CalendarContract
+import android.provider.Settings
 import android.speech.RecognizerIntent
 import android.speech.tts.TextToSpeech
 import androidx.activity.ComponentActivity
@@ -135,10 +136,11 @@ class MainActivity : ComponentActivity() {
         val keyStore = SecureKeyStore(applicationContext)
         val historyStore = ChatHistoryStore(applicationContext)
         val sharedText = intent?.let(::extractSharedText).orEmpty()
+        val openLive = intent?.getBooleanExtra(EXTRA_OPEN_LIVE, false) == true
         setContent {
             JarvisTheme {
                 Surface(modifier = Modifier.fillMaxSize(), color = Void) {
-                    JarvisScreen(keyStore, historyStore, sharedText)
+                    JarvisScreen(keyStore, historyStore, sharedText, openLive)
                 }
             }
         }
@@ -151,6 +153,10 @@ class MainActivity : ComponentActivity() {
                 Intent(this, LiveScreenCaptureService::class.java)
                     .setAction(LiveScreenCaptureService.ACTION_PAUSE),
             )
+            startService(
+                Intent(this, LiveScreenCaptureService::class.java)
+                    .setAction(LiveScreenCaptureService.ACTION_APP_FOREGROUND),
+            )
         }
     }
 
@@ -160,8 +166,16 @@ class MainActivity : ComponentActivity() {
                 Intent(this, LiveScreenCaptureService::class.java)
                     .setAction(LiveScreenCaptureService.ACTION_RESUME),
             )
+            startService(
+                Intent(this, LiveScreenCaptureService::class.java)
+                    .setAction(LiveScreenCaptureService.ACTION_APP_BACKGROUND),
+            )
         }
         super.onPause()
+    }
+
+    companion object {
+        const val EXTRA_OPEN_LIVE = "com.openjarvis.mobile.extra.OPEN_LIVE"
     }
 
     private fun extractSharedText(intent: Intent): String? {
@@ -194,6 +208,7 @@ private fun JarvisScreen(
     keyStore: SecureKeyStore,
     historyStore: ChatHistoryStore,
     initialSharedText: String,
+    initialOpenLive: Boolean,
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -222,7 +237,7 @@ private fun JarvisScreen(
         mutableStateListOf<String>().apply { addAll(memoryStore.load()) }
     }
 
-    var destination by remember { mutableStateOf(Destination.HOME) }
+    var destination by remember { mutableStateOf(if (initialOpenLive) Destination.LIVE else Destination.HOME) }
     var serverUrl by remember { mutableStateOf(keyStore.loadServerUrl().orEmpty()) }
     var apiKey by remember { mutableStateOf(keyStore.loadApiKey().orEmpty()) }
     var model by remember { mutableStateOf(settingsStore.loadModel()) }
@@ -243,10 +258,11 @@ private fun JarvisScreen(
     var tts by remember { mutableStateOf<TextToSpeech?>(null) }
     var ttsReady by remember { mutableStateOf(false) }
     var liveGreetingSpoken by remember { mutableStateOf(false) }
-    var liveQuestion by remember { mutableStateOf("Explain what is on my screen and guide me through the next step.") }
+    var liveQuestion by remember { mutableStateOf("") }
     var liveAttachment by remember { mutableStateOf<LiveAttachment?>(null) }
     val liveFrameBase64 by LiveScreenCaptureState.frameBase64.collectAsState()
     val liveSharing by LiveScreenCaptureState.isActive.collectAsState()
+    val floatingPanelEnabled by LiveScreenCaptureState.isOverlayEnabled.collectAsState()
 
     fun persistCurrentConversation() {
         val existing = conversations.firstOrNull { it.id == activeConversationId }
@@ -366,7 +382,7 @@ private fun JarvisScreen(
                     } else if (wakeAskedForLive) {
                         liveQuestion = spokenText
                         destination = Destination.LIVE
-                        status = "Your question is ready in Jarvis Live. Choose what to share, then tap Ask."
+                        status = "Voice transcript ready. Review it in Live, then tap Ask Jarvis."
                     } else {
                         prompt = listOf(prompt.trim(), spokenText).filter(String::isNotBlank).joinToString(" ")
                         destination = Destination.CHAT
@@ -406,6 +422,20 @@ private fun JarvisScreen(
             }
         } else {
             status = "Screen sharing was cancelled. Nothing was captured."
+        }
+    }
+
+    val overlayPermissionInput = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult(),
+    ) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(context)) {
+            context.startService(
+                Intent(context, LiveScreenCaptureService::class.java)
+                    .setAction(LiveScreenCaptureService.ACTION_SHOW_OVERLAY),
+            )
+            status = "Floating Jarvis is enabled. Switch to another app while sharing to see the panel."
+        } else {
+            status = "Overlay permission was not enabled. In-app Live and screen sharing still work."
         }
     }
 
@@ -534,6 +564,35 @@ private fun JarvisScreen(
         }
     }
 
+    fun enableFloatingPanel() {
+        if (!liveSharing) {
+            status = "Start screen sharing before enabling the floating panel."
+            return
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(context)) {
+            overlayPermissionInput.launch(
+                Intent(
+                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    Uri.parse("package:${context.packageName}"),
+                ),
+            )
+        } else {
+            context.startService(
+                Intent(context, LiveScreenCaptureService::class.java)
+                    .setAction(LiveScreenCaptureService.ACTION_SHOW_OVERLAY),
+            )
+            status = "Floating Jarvis is enabled. Switch to another app to see the panel."
+        }
+    }
+
+    fun hideFloatingPanel() {
+        context.startService(
+            Intent(context, LiveScreenCaptureService::class.java)
+                .setAction(LiveScreenCaptureService.ACTION_HIDE_OVERLAY),
+        )
+        status = "Floating panel disabled. Screen sharing remains active."
+    }
+
     DisposableEffect(context) {
         val engine = TextToSpeech(context.applicationContext) { result ->
             ttsReady = result == TextToSpeech.SUCCESS
@@ -551,9 +610,9 @@ private fun JarvisScreen(
     LaunchedEffect(destination, ttsReady) {
         if (destination == Destination.LIVE && ttsReady && !liveGreetingSpoken) {
             liveGreetingSpoken = true
-            tts?.language = Locale.getDefault()
+            tts?.language = Locale.US
             tts?.speak(
-                "Hello, I'm Jarvis. I'm here to help. You can talk to me or share your screen.",
+                "Jarvis online. How may I assist?",
                 TextToSpeech.QUEUE_FLUSH,
                 null,
                 "jarvis-live-welcome",
@@ -731,7 +790,7 @@ private fun JarvisScreen(
                     "Reply complete · conversation saved on this device."
                 }
                 if (speakReplies && ttsReady) {
-                    tts?.language = Locale.getDefault()
+                    tts?.language = speechLocale(replyLanguage)
                     tts?.speak(response, TextToSpeech.QUEUE_FLUSH, null, "jarvis-reply")
                 }
             } catch (error: Exception) {
@@ -746,7 +805,7 @@ private fun JarvisScreen(
     fun speakLatestReply() {
         val latest = messages.lastOrNull { it.role == "assistant" }?.content
         if (ttsReady && !latest.isNullOrBlank()) {
-            tts?.language = Locale.getDefault()
+            tts?.language = speechLocale(replyLanguage)
             tts?.speak(latest, TextToSpeech.QUEUE_FLUSH, null, "jarvis-last-reply")
             status = "Speaking the latest reply."
         } else {
@@ -882,6 +941,9 @@ private fun JarvisScreen(
                     onRenameConversation = ::renameConversation,
                     onTogglePinConversation = ::toggleConversationPin,
                     onDeleteConversation = ::deleteConversation,
+                    onOpenMemory = { destination = Destination.MEMORY },
+                    onOpenHub = { destination = Destination.HUB },
+                    onOpenLive = { destination = Destination.LIVE },
                 )
                 Destination.MEMORY -> MemoryScreen(
                     memories = memories,
@@ -892,6 +954,9 @@ private fun JarvisScreen(
                 )
                 Destination.LIVE -> LiveScreen(
                     isSharing = liveSharing,
+                    floatingPanelEnabled = floatingPanelEnabled,
+                    onEnableFloatingPanel = ::enableFloatingPanel,
+                    onHideFloatingPanel = ::hideFloatingPanel,
                     frameBase64 = liveFrameBase64,
                     attachment = liveAttachment,
                     conversationMessages = messages.toList().takeLast(8),
@@ -912,8 +977,9 @@ private fun JarvisScreen(
                                 RecognizerIntent.EXTRA_LANGUAGE_MODEL,
                                 RecognizerIntent.LANGUAGE_MODEL_FREE_FORM,
                             )
-                            putExtra(RecognizerIntent.EXTRA_PROMPT, "Talk to Jarvis Live")
+                            putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak to Jarvis Live")
                         }
+                        status = "Opening voice input. Speak when the phone prompts you."
                         try {
                             speechInput.launch(intent)
                         } catch (_: ActivityNotFoundException) {
