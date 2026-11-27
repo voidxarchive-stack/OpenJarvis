@@ -1125,7 +1125,7 @@ private fun HomeScreen(
                 Text(
                     when {
                         liveSharing -> "LIVE SCREEN SESSION ACTIVE"
-                        wakeListening -> "I'M LISTENING"
+                        wakeListening -> "LISTENING FOR “HEY JARVIS”"
                         else -> "READY WHEN YOU ARE"
                     },
                     color = if (liveSharing || wakeListening) Green else Cyan,
@@ -1135,7 +1135,7 @@ private fun HomeScreen(
                 Text(
                     when {
                         liveSharing -> "Your approved screen-share session is active. Open Live to ask about a frame."
-                        wakeListening -> "Say “Hey Jarvis” to start talking."
+                        wakeListening -> "Say “Hey Jarvis” now. When detected, your phone's speech input will open."
                         else -> "Tap below to speak, or open a conversation."
                     },
                     color = Muted,
@@ -1156,7 +1156,7 @@ private fun HomeScreen(
                     FilledTonalButton(onClick = onChat) { Text("Open chat") }
                 }
                 Text(
-                    "Wake-word preview runs only while the app is in the foreground. It pauses when you switch to another app.",
+                    "Keep Jarvis open on screen. Leaving the app pauses wake listening. This does not start screen sharing.",
                     color = Muted,
                     style = MaterialTheme.typography.labelSmall,
                 )
