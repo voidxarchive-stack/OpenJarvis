@@ -9,18 +9,10 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.graphics.Bitmap
-import android.graphics.PixelFormat
 import android.graphics.Color as AndroidColor
+import android.graphics.PixelFormat
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
-import android.provider.Settings
-import android.view.Gravity
-import android.view.MotionEvent
-import android.view.View
-import android.view.WindowManager
-import android.widget.Button
-import android.widget.LinearLayout
-import android.widget.TextView
 import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
 import android.media.ImageReader
@@ -31,7 +23,14 @@ import android.os.Handler
 import android.os.HandlerThread
 import android.os.IBinder
 import android.os.SystemClock
+import android.provider.Settings
 import android.util.Base64
+import android.view.Gravity
+import android.view.View
+import android.view.WindowManager
+import android.widget.Button
+import android.widget.LinearLayout
+import android.widget.TextView
 import java.io.ByteArrayOutputStream
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -40,16 +39,11 @@ import kotlinx.coroutines.flow.StateFlow
 object LiveScreenCaptureState {
     private val mutableFrame = MutableStateFlow<String?>(null)
     private val mutableActive = MutableStateFlow(false)
+    private val mutableOverlayEnabled = MutableStateFlow(false)
 
     val frameBase64: StateFlow<String?> = mutableFrame
     val isActive: StateFlow<Boolean> = mutableActive
-
-    private val mutableOverlayEnabled = MutableStateFlow(false)
     val isOverlayEnabled: StateFlow<Boolean> = mutableOverlayEnabled
-
-    internal fun setOverlayEnabled(value: Boolean) {
-        mutableOverlayEnabled.value = value
-    }
 
     internal fun publishFrame(value: String) {
         mutableFrame.value = value
@@ -58,6 +52,10 @@ object LiveScreenCaptureState {
     internal fun setActive(value: Boolean) {
         mutableActive.value = value
         if (!value) mutableFrame.value = null
+    }
+
+    internal fun setOverlayEnabled(value: Boolean) {
+        mutableOverlayEnabled.value = value
     }
 }
 
@@ -68,7 +66,9 @@ class LiveScreenCaptureService : Service() {
     private var captureThread: HandlerThread? = null
     private var captureHandler: Handler? = null
     private var lastFrameAt = 0L
-    @Volatile private var capturePaused = false
+
+    @Volatile
+    private var capturePaused = false
 
     private var overlayRequested = false
     private var appInForeground = true
@@ -78,9 +78,6 @@ class LiveScreenCaptureService : Service() {
     private val projectionCallback = object : MediaProjection.Callback() {
         override fun onStop() {
             releaseCapture(stopProjection = false)
-            overlayRequested = false
-            LiveScreenCaptureState.setOverlayEnabled(false)
-            removeFloatingPanel()
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
         }
@@ -90,7 +87,6 @@ class LiveScreenCaptureService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
-
             ACTION_SHOW_OVERLAY -> {
                 overlayRequested = true
                 LiveScreenCaptureState.setOverlayEnabled(true)
@@ -115,9 +111,6 @@ class LiveScreenCaptureService : Service() {
             }
             ACTION_STOP -> {
                 releaseCapture(stopProjection = true)
-                overlayRequested = false
-                LiveScreenCaptureState.setOverlayEnabled(false)
-                removeFloatingPanel()
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
                 return START_NOT_STICKY
@@ -174,6 +167,7 @@ class LiveScreenCaptureService : Service() {
         releaseCapture(stopProjection = true)
         capturePaused = false
         lastFrameAt = 0L
+
         val manager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
         val metrics = resources.displayMetrics
         val width = metrics.widthPixels.coerceAtLeast(1)
@@ -230,9 +224,7 @@ class LiveScreenCaptureService : Service() {
                         scaled.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, output)
                         output.toByteArray()
                     }
-                    LiveScreenCaptureState.publishFrame(
-                        Base64.encodeToString(jpeg, Base64.NO_WRAP),
-                    )
+                    LiveScreenCaptureState.publishFrame(Base64.encodeToString(jpeg, Base64.NO_WRAP))
                     if (scaled !== cropped) scaled.recycle()
                     if (cropped !== padded) cropped.recycle()
                     padded.recycle()
@@ -261,6 +253,7 @@ class LiveScreenCaptureService : Service() {
         overlayRequested = false
         LiveScreenCaptureState.setOverlayEnabled(false)
         removeFloatingPanel()
+
         imageReader?.setOnImageAvailableListener(null, null)
         virtualDisplay?.release()
         virtualDisplay = null
@@ -289,6 +282,18 @@ class LiveScreenCaptureService : Service() {
     }
 
     private fun createNotificationChannel() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        val manager = getSystemService(NotificationManager::class.java)
+        manager.createNotificationChannel(
+            NotificationChannel(
+                CHANNEL_ID,
+                "Jarvis screen sharing",
+                NotificationManager.IMPORTANCE_LOW,
+            ).apply {
+                description = "Shown while Jarvis is allowed to view your shared screen."
+            },
+        )
+    }
 
     private fun showFloatingPanel() {
         if (!overlayRequested || appInForeground || !LiveScreenCaptureState.isActive.value) return
@@ -299,8 +304,8 @@ class LiveScreenCaptureService : Service() {
         }
         if (overlayView != null) return
 
-        val wm = getSystemService(WINDOW_SERVICE) as WindowManager
-        windowManager = wm
+        val manager = getSystemService(WINDOW_SERVICE) as WindowManager
+        windowManager = manager
         val density = resources.displayMetrics.density
         fun dp(value: Int): Int = (value * density).toInt()
 
@@ -329,6 +334,7 @@ class LiveScreenCaptureService : Service() {
         val actions = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
         }
+
         fun actionButton(label: String, onClick: () -> Unit): Button =
             Button(this).apply {
                 text = label
@@ -339,9 +345,14 @@ class LiveScreenCaptureService : Service() {
                     marginEnd = dp(4)
                 }
             }
+
         actions.addView(actionButton("Open Jarvis") {
             val open = Intent(this, MainActivity::class.java).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                addFlags(
+                    Intent.FLAG_ACTIVITY_NEW_TASK or
+                        Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                        Intent.FLAG_ACTIVITY_SINGLE_TOP,
+                )
                 putExtra(MainActivity.EXTRA_OPEN_LIVE, true)
             }
             startActivity(open)
@@ -357,43 +368,17 @@ class LiveScreenCaptureService : Service() {
             dp(286),
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.TRANSLUCENT,
         ).apply {
             gravity = Gravity.TOP or Gravity.END
             x = dp(12)
             y = dp(100)
         }
-        panel.setOnTouchListener(object : View.OnTouchListener {
-            private var startX = 0
-            private var startY = 0
-            private var startRawX = 0f
-            private var startRawY = 0f
-            override fun onTouch(view: View, event: MotionEvent): Boolean {
-                when (event.action) {
-                    MotionEvent.ACTION_DOWN -> {
-                        startX = params.x
-                        startY = params.y
-                        startRawX = event.rawX
-                        startRawY = event.rawY
-                        return false
-                    }
-                    MotionEvent.ACTION_MOVE -> {
-                        params.x = (startX - (event.rawX - startRawX).toInt()).coerceAtLeast(0)
-                        params.y = (startY + (event.rawY - startRawY).toInt()).coerceAtLeast(dp(24))
-                        try {
-                            wm.updateViewLayout(view, params)
-                        } catch (_: Exception) {
-                            return false
-                        }
-                        return true
-                    }
-                }
-                return false
-            }
-        })
+
         try {
-            wm.addView(panel, params)
+            manager.addView(panel, params)
             overlayView = panel
         } catch (_: Exception) {
             overlayRequested = false
@@ -411,19 +396,6 @@ class LiveScreenCaptureService : Service() {
             overlayView = null
             windowManager = null
         }
-    }
-
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
-        val manager = getSystemService(NotificationManager::class.java)
-        manager.createNotificationChannel(
-            NotificationChannel(
-                CHANNEL_ID,
-                "Jarvis screen sharing",
-                NotificationManager.IMPORTANCE_LOW,
-            ).apply {
-                description = "Shown while Jarvis is allowed to view your shared screen."
-            },
-        )
     }
 
     private fun buildNotification(): Notification {
