@@ -40,6 +40,8 @@ Wake-word detection requires microphone permission and an explicit Start action.
 - Tap **Share app or screen** or use the **+** menu and approve Android's system capture prompt each time.
 - Android's capture dialog may offer a single-app window or the full display. The user chooses; Jarvis cannot bypass or silently choose the app for you. Exact picker choices depend on the Android/OEM system UI.
 - A foreground media-projection service keeps the user-approved session active and shows an ongoing notification with a Stop action.
+- The Live screen offers an optional floating Jarvis status panel. You must explicitly enable Android's **Display over other apps** permission; the panel appears when you switch away from Jarvis and provides **Open Jarvis** and **Stop share** controls. It hides when Jarvis returns to the foreground.
+- The floating panel is a status/control surface, not a continuous Gemini-style voice/video session or live transcript. **Talk** currently uses Android's one-shot speech recognizer; review the transcript and tap **Ask Jarvis** to send it.
 - Jarvis samples downscaled frames locally for preview. Capture pauses while the Jarvis activity is visible to avoid showing a recursive preview.
 - Screen frames are sent to the configured AI endpoint only when the user taps **Ask Jarvis**.
 - The **+** menu supports:
